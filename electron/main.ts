@@ -94,6 +94,11 @@ function registerIpcHandlers(): void {
     appUpdater.configureFromSettings()
     return appUpdater.getStatus()
   })
+
+  ipcMain.handle('logs:get', () => pythonManager.getLogs())
+  ipcMain.handle('logs:clear', () => {
+    pythonManager.clearLogs()
+  })
 }
 
 app.whenReady().then(async () => {
@@ -102,24 +107,37 @@ app.whenReady().then(async () => {
   }
 
   try {
+    pythonManager.onLog((line) => {
+      mainWindow?.webContents.send('logs:append', line)
+    })
+
     await pythonManager.start()
     registerIpcHandlers()
     createWindow()
     appUpdater.scheduleAutoCheck()
+
+    // Only wired up once the backend is actually running: on macOS, launching
+    // the raw Electron binary (dev mode) can fire a spurious 'activate' event
+    // right after startup. Registering this unconditionally meant a failed
+    // pythonManager.start() could still end up opening a window with no
+    // backend behind it, bypassing the error dialog above entirely.
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow()
+      }
+    })
   } catch (error) {
     console.error('Failed to start application:', error)
+    const detail = error instanceof Error ? error.message : String(error)
+    const hint = isDev
+      ? 'Run "npm run backend:setup" first if you have not already.'
+      : `Details were saved to backend-startup.log in the app's data folder (${app.getPath('userData')}).`
     dialog.showErrorBox(
       'Startup Error',
-      'Could not start the local transcription engine. Run "npm run backend:setup" first.'
+      `Could not start the local transcription engine.\n\n${detail}\n\n${hint}`
     )
     app.quit()
   }
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
-    }
-  })
 })
 
 app.on('window-all-closed', () => {

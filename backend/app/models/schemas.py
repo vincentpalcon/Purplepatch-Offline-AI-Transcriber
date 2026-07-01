@@ -115,6 +115,9 @@ class AppSettings(BaseModel):
     # sequential decoding preserves). Faster, but not safe as a default.
     fast_batched: bool = False
     enable_speaker_labels: bool = True
+    # When True, diarization errors do not fail the job — transcription continues
+    # with a single-speaker export instead of speaker-labeled output.
+    diarization_optional: bool = True
     huggingface_token: str | None = None
     diarization_min_speakers: int | None = Field(default=None, ge=1, le=20)
     diarization_max_speakers: int | None = Field(default=None, ge=1, le=20)
@@ -135,6 +138,7 @@ class UpdateSettingsRequest(BaseModel):
     vocabulary: str | None = None
     fast_batched: bool | None = None
     enable_speaker_labels: bool | None = None
+    diarization_optional: bool | None = None
     huggingface_token: str | None = None
     diarization_min_speakers: int | None = Field(default=None, ge=1, le=20)
     diarization_max_speakers: int | None = Field(default=None, ge=1, le=20)

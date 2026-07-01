@@ -17,6 +17,9 @@ export interface ElectronAPI {
   installUpdate: () => Promise<void>
   configureUpdater: () => Promise<UpdateStatusPayload>
   onUpdateStatusChanged: (callback: (status: UpdateStatusPayload) => void) => () => void
+  getEngineLogs: () => Promise<string[]>
+  clearEngineLogs: () => Promise<void>
+  onEngineLog: (callback: (line: string) => void) => () => void
 }
 
 const electronAPI: ElectronAPI = {
@@ -39,6 +42,17 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.on('update:status-changed', handler)
     return () => {
       ipcRenderer.removeListener('update:status-changed', handler)
+    }
+  },
+  getEngineLogs: () => ipcRenderer.invoke('logs:get'),
+  clearEngineLogs: () => ipcRenderer.invoke('logs:clear'),
+  onEngineLog: (callback) => {
+    const handler = (_event: IpcRendererEvent, line: string) => {
+      callback(line)
+    }
+    ipcRenderer.on('logs:append', handler)
+    return () => {
+      ipcRenderer.removeListener('logs:append', handler)
     }
   }
 }

@@ -8,12 +8,14 @@ import {
   RefreshCw,
   Settings,
   StopCircle,
+  Terminal,
   Trash2,
   Wifi,
   WifiOff
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { ActivityLog } from '@/components/ActivityLog'
+import { ConsolePanel } from '@/components/ConsolePanel'
 import { JobQueue } from '@/components/JobQueue'
 import { OnboardingModal } from '@/components/OnboardingModal'
 import { PipelineStatus } from '@/components/PipelineStatus'
@@ -48,6 +50,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   vocabulary: null,
   fast_batched: false,
   enable_speaker_labels: true,
+  diarization_optional: true,
   huggingface_token: null,
   diarization_min_speakers: null,
   diarization_max_speakers: null,
@@ -72,6 +75,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusPayload | null>(null)
   const [updateModalDismissed, setUpdateModalDismissed] = useState(false)
+  const [consoleOpen, setConsoleOpen] = useState(false)
+  const [engineLogs, setEngineLogs] = useState<string[]>([])
 
   const selectedJob = jobs.find((j) => j.id === selectedJobId) ?? jobs[0] ?? null
   const showUpdateModal =
@@ -86,6 +91,21 @@ export default function App() {
       }
     })
   }, [])
+
+  useEffect(() => {
+    void window.electronAPI.getEngineLogs().then(setEngineLogs).catch(() => undefined)
+    return window.electronAPI.onEngineLog((line) => {
+      setEngineLogs((prev) => {
+        const next = [...prev, line]
+        return next.length > 2000 ? next.slice(-2000) : next
+      })
+    })
+  }, [])
+
+  const handleClearEngineLogs = async () => {
+    await window.electronAPI.clearEngineLogs()
+    setEngineLogs([])
+  }
 
   const refresh = useCallback(async () => {
     try {
@@ -260,6 +280,18 @@ export default function App() {
               </>
             )}
           </div>
+
+          <button
+            onClick={() => setConsoleOpen((open) => !open)}
+            className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
+              consoleOpen
+                ? 'border-accent/50 bg-accent-muted/40 text-accent'
+                : 'border-surface-border bg-surface-overlay text-slate-300 hover:bg-surface-border'
+            }`}
+            title={consoleOpen ? 'Hide engine console' : 'Show engine console'}
+          >
+            <Terminal className="h-4 w-4" />
+          </button>
 
           <button
             onClick={() => setView('settings')}
@@ -444,6 +476,16 @@ export default function App() {
         </main>
       </div>
       </DropZone>
+
+      {consoleOpen && (
+        <div className="h-56 shrink-0 border-t border-surface-border">
+          <ConsolePanel
+            lines={engineLogs}
+            onClear={() => void handleClearEngineLogs()}
+            onClose={() => setConsoleOpen(false)}
+          />
+        </div>
+      )}
 
       {connected && <SystemMonitor stats={systemStats} />}
       </div>

@@ -81,6 +81,7 @@ export interface AppSettings {
   vocabulary: string | null
   fast_batched: boolean
   enable_speaker_labels: boolean
+  diarization_optional: boolean
   huggingface_token: string | null
   diarization_min_speakers: number | null
   diarization_max_speakers: number | null
@@ -141,6 +142,7 @@ export interface UpdateSettingsRequest {
   vocabulary?: string | null
   fast_batched?: boolean
   enable_speaker_labels?: boolean
+  diarization_optional?: boolean
   huggingface_token?: string | null
   diarization_min_speakers?: number | null
   diarization_max_speakers?: number | null

@@ -127,40 +127,66 @@ class JobManager:
             app_settings = load_settings()
             model_name = job.model or app_settings.model
             speaker_regions: list[SpeakerRegion] = []
+            use_speaker_labels = False
 
             if app_settings.enable_speaker_labels:
                 diarization_service = DiarizationService.get_instance()
                 if not diarization_service.is_downloaded():
-                    raise RuntimeError(
-                        "Speaker diarization models are not downloaded. "
-                        "Go to Settings → Models to download them first."
+                    if app_settings.diarization_optional:
+                        await update_stage(
+                            PipelineStage.DIARIZATION,
+                            20.0,
+                            "Diarization skipped — models not downloaded",
+                        )
+                        await db.add_activity(
+                            "Speaker diarization models not downloaded; continuing with "
+                            "transcription only (optional mode).",
+                            level="warn",
+                            job_id=job_id,
+                        )
+                    else:
+                        raise RuntimeError(
+                            "Speaker diarization models are not downloaded. "
+                            "Go to Settings → Models to download them first, or enable "
+                            "'Continue without speaker labels if diarization fails'."
+                        )
+                else:
+                    await update_stage(
+                        PipelineStage.DIARIZATION,
+                        20.0,
+                        "Identifying speakers with pyannote.audio",
                     )
-
-                await update_stage(
-                    PipelineStage.DIARIZATION,
-                    20.0,
-                    "Identifying speakers with pyannote.audio",
-                )
-                loop = asyncio.get_event_loop()
-                try:
-                    speaker_regions = await loop.run_in_executor(
-                        None,
-                        lambda: diarize_audio(
-                            job.file_path,
-                            hf_token=app_settings.huggingface_token,
-                            device_pref=app_settings.device,
-                            min_speakers=app_settings.diarization_min_speakers,
-                            max_speakers=app_settings.diarization_max_speakers,
-                        ),
-                    )
-                except DiarizationError as exc:
-                    raise RuntimeError(str(exc)) from exc
-                speaker_count = len({region.speaker for region in speaker_regions}) or 1
-                await db.add_activity(
-                    f"pyannote detected {speaker_count} speaker(s)",
-                    level="info",
-                    job_id=job_id,
-                )
+                    loop = asyncio.get_event_loop()
+                    try:
+                        speaker_regions = await loop.run_in_executor(
+                            None,
+                            lambda: diarize_audio(
+                                job.file_path,
+                                hf_token=app_settings.huggingface_token,
+                                device_pref=app_settings.device,
+                                min_speakers=app_settings.diarization_min_speakers,
+                                max_speakers=app_settings.diarization_max_speakers,
+                            ),
+                        )
+                    except DiarizationError as exc:
+                        if app_settings.diarization_optional:
+                            await db.add_activity(
+                                f"Diarization failed; continuing without speaker labels: {exc}",
+                                level="warn",
+                                job_id=job_id,
+                            )
+                        else:
+                            raise RuntimeError(str(exc)) from exc
+                    else:
+                        use_speaker_labels = True
+                        speaker_count = (
+                            len({region.speaker for region in speaker_regions}) or 1
+                        )
+                        await db.add_activity(
+                            f"pyannote detected {speaker_count} speaker(s)",
+                            level="info",
+                            job_id=job_id,
+                        )
             else:
                 await update_stage(
                     PipelineStage.DIARIZATION,
@@ -182,7 +208,7 @@ class JobManager:
             was_paused = False
 
             def assign_speaker(segment: TranscriptSegment) -> TranscriptSegment:
-                if not app_settings.enable_speaker_labels:
+                if not use_speaker_labels:
                     return segment.model_copy(update={"speaker": 1})
                 speaker = speaker_for_interval(segment.start, segment.end, speaker_regions)
                 return segment.model_copy(update={"speaker": speaker})
@@ -274,7 +300,7 @@ class JobManager:
                 await db.add_activity("Job cancelled", level="warn", job_id=job_id)
                 return
 
-            if app_settings.enable_speaker_labels:
+            if use_speaker_labels:
                 labeled_segments = [assign_speaker(segment) for segment in transcript_segments]
             else:
                 labeled_segments = [

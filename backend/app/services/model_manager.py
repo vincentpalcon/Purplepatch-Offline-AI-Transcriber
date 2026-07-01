@@ -6,6 +6,11 @@ from pathlib import Path
 from app.core.config import settings
 from app.models.schemas import ModelDownloadStatus, ModelWithStatus
 from app.services.model_catalog import get_model_by_id, get_model_catalog
+from app.services.model_download import (
+    clean_incomplete_model_dir,
+    download_whisper_model,
+    is_complete_model_dir,
+)
 from app.services.settings_store import load_settings
 
 
@@ -31,17 +36,22 @@ class ModelManager:
     def _legacy_model_dir(self) -> Path:
         return settings.models_dir
 
-    def _has_model_files(self, directory: Path) -> bool:
+    def _has_model_files(self, directory: Path, model_id: str | None = None) -> bool:
+        if model_id:
+            return is_complete_model_dir(directory, model_id)
         return (directory / "model.bin").is_file()
 
     def _resolve_model_dir(self, model_id: str) -> Path | None:
         per_model_dir = self._model_dir(model_id)
-        if self._has_model_files(per_model_dir):
+        if self._has_model_files(per_model_dir, model_id):
             return per_model_dir
+
+        if per_model_dir.exists():
+            clean_incomplete_model_dir(per_model_dir, model_id)
 
         # Backward compatibility: older builds downloaded into models/ root.
         legacy = self._legacy_model_dir()
-        if self._has_model_files(legacy):
+        if self._has_model_files(legacy, model_id):
             active = self._read_active_model_marker()
             if active == model_id or active is None:
                 return legacy
@@ -134,24 +144,17 @@ class ModelManager:
 
     def _download_worker(self, model_id: str) -> None:
         try:
-            from faster_whisper.utils import download_model
-
             settings.ensure_dirs()
             model_dir = self._model_dir(model_id)
-            model_dir.mkdir(parents=True, exist_ok=True)
 
             with self._download_lock:
                 self._download_status.message = (
                     f"Downloading {model_id} from Hugging Face..."
                 )
 
-            download_model(
-                model_id,
-                output_dir=str(model_dir),
-                local_files_only=False,
-            )
+            download_whisper_model(model_id, model_dir)
 
-            if not self._has_model_files(model_dir):
+            if not self._has_model_files(model_dir, model_id):
                 raise RuntimeError(
                     f"Download finished but model files were not found in {model_dir}"
                 )
@@ -188,8 +191,9 @@ class ModelManager:
                 raise RuntimeError(f"Cannot delete {model_id} while it is downloading.")
 
         model_dir = self._model_dir(model_id)
+        clean_incomplete_model_dir(model_dir, model_id)
         if model_dir.exists():
-            shutil.rmtree(model_dir)
+            shutil.rmtree(model_dir, ignore_errors=True)
 
         if load_settings().model == model_id:
             from app.services.transcription import TranscriptionService

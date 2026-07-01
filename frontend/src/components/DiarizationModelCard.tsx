@@ -35,7 +35,8 @@ export function DiarizationModelCard({
           </div>
           <p className="mt-1 text-sm text-slate-400">
             pyannote/speaker-diarization-community-1 — identifies who is speaking in
-            multi-speaker audio.
+            multi-speaker audio. To transcribe without it, disable Speaker labels in
+            Processing (no download required).
           </p>
           <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
             <span className="flex items-center gap-1">
@@ -58,7 +59,7 @@ export function DiarizationModelCard({
                 onClick={onDelete}
                 disabled={isDownloading}
                 className="flex items-center gap-1 rounded-lg border border-status-failed/30 bg-status-failed/10 px-2.5 py-1.5 text-xs font-medium text-status-failed hover:bg-status-failed/20 disabled:opacity-50"
-                title="Delete diarization models to free disk space"
+                title="Delete pyannote models only (Whisper models are kept)"
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 Delete

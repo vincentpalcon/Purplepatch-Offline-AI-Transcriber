@@ -170,6 +170,7 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
         vocabulary: draft.vocabulary,
         fast_batched: draft.fast_batched,
         enable_speaker_labels: draft.enable_speaker_labels,
+        diarization_optional: draft.diarization_optional,
         huggingface_token: draft.huggingface_token,
         diarization_min_speakers: draft.diarization_min_speakers,
         diarization_max_speakers: draft.diarization_max_speakers,
@@ -221,7 +222,13 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
   }
 
   const handleDeleteDiarization = async () => {
-    if (!window.confirm('Delete diarization models? You can re-download them later.')) return
+    if (
+      !window.confirm(
+        'Delete speaker diarization models? Whisper models will not be affected. You can re-download later, or turn off Speaker labels in Processing to skip diarization entirely.'
+      )
+    ) {
+      return
+    }
     setError(null)
     try {
       await api.deleteDiarizationModels()
@@ -511,6 +518,24 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
                       </p>
                     </Field>
                     {draft.enable_speaker_labels && (
+                      <Field label="Diarization fallback">
+                        <label className="flex items-center gap-2 text-sm text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={draft.diarization_optional ?? true}
+                            onChange={(e) =>
+                              updateDraft({ diarization_optional: e.target.checked })
+                            }
+                          />
+                          Continue without speaker labels if diarization fails
+                        </label>
+                        <p className="mt-1 text-xs text-slate-500">
+                          When enabled, a diarization error will not fail the job — you still get
+                          the pure transcript. Turn off to require successful speaker detection.
+                        </p>
+                      </Field>
+                    )}
+                    {draft.enable_speaker_labels && (
                       <div className="grid gap-4 sm:grid-cols-2 sm:col-span-2">
                         <Field label="Min speakers (optional)">
                           <input
@@ -582,23 +607,21 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
                   />
                 </Section>
 
-                {draft.enable_speaker_labels && (
-                  <Section
-                    title="Speaker Diarization"
-                    description="Download pyannote models before transcribing with speaker labels. Shows live progress during download."
-                  >
-                    <DiarizationModelCard
-                      status={diarizationStatus}
-                      downloadStatus={diarizationDownloadStatus}
-                      huggingfaceToken={draft.huggingface_token ?? ''}
-                      onTokenChange={(token) =>
-                        updateDraft({ huggingface_token: token.trim() || null })
-                      }
-                      onDownload={handleDownloadDiarization}
-                      onDelete={handleDeleteDiarization}
-                    />
-                  </Section>
-                )}
+                <Section
+                  title="Speaker Diarization"
+                  description="Optional — only needed when Speaker labels is enabled in Processing. Delete here to free space or test a fresh re-download; Whisper models are not removed."
+                >
+                  <DiarizationModelCard
+                    status={diarizationStatus}
+                    downloadStatus={diarizationDownloadStatus}
+                    huggingfaceToken={draft.huggingface_token ?? ''}
+                    onTokenChange={(token) =>
+                      updateDraft({ huggingface_token: token.trim() || null })
+                    }
+                    onDownload={handleDownloadDiarization}
+                    onDelete={handleDeleteDiarization}
+                  />
+                </Section>
               </>
             )}
 

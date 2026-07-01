@@ -96,11 +96,25 @@ class DiarizationService:
     def _cache_root(self) -> Path:
         return settings.data_dir / "cache" / "huggingface"
 
+    def _hub_cache_dir(self) -> Path:
+        return self._cache_root() / "hub"
+
+    def _pyannote_hub_dirs(self) -> list[Path]:
+        hub = self._hub_cache_dir()
+        if not hub.is_dir():
+            return []
+        return sorted(
+            path
+            for path in hub.iterdir()
+            if path.is_dir() and path.name.startswith("models--pyannote--")
+        )
+
     def _marker_path(self) -> Path:
         return settings.data_dir / "cache" / "diarization" / DOWNLOAD_COMPLETE_MARKER
 
     def get_local_size_mb(self) -> float:
-        return round(_dir_size_bytes(self._cache_root()) / (1024 * 1024), 1)
+        total = sum(_dir_size_bytes(path) for path in self._pyannote_hub_dirs())
+        return round(total / (1024 * 1024), 1)
 
     def is_downloaded(self) -> bool:
         if self._marker_path().is_file():
@@ -273,13 +287,13 @@ class DiarizationService:
                 raise RuntimeError("Cannot delete while diarization models are downloading.")
 
         self.unload_pipeline()
-        cache_root = self._cache_root()
         marker_dir = settings.data_dir / "cache" / "diarization"
 
-        if cache_root.exists():
-            shutil.rmtree(cache_root)
+        for repo_dir in self._pyannote_hub_dirs():
+            shutil.rmtree(repo_dir, ignore_errors=True)
+
         if marker_dir.exists():
-            shutil.rmtree(marker_dir)
+            shutil.rmtree(marker_dir, ignore_errors=True)
 
         with self._download_lock:
             self._download_status = DiarizationDownloadStatus()
