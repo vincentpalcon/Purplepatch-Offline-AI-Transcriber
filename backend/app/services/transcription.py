@@ -4,6 +4,7 @@ from threading import Lock
 from typing import TYPE_CHECKING
 
 from app.core.config import settings
+from app.models.schemas import TranscriptSegment
 from app.services.model_manager import model_manager
 
 if TYPE_CHECKING:
@@ -128,8 +129,8 @@ class TranscriptionService:
         model_name: str | None = None,
         on_segment=None,
         should_continue=None,
-    ) -> tuple[str, float, float]:
-        """Returns (full_text, duration_seconds, processing_seconds).
+    ) -> tuple[str, list[TranscriptSegment], float, float]:
+        """Returns (full_text, segments, duration_seconds, processing_seconds).
 
         on_segment(segment, info) is called after each decoded segment, so
         callers can report incremental progress. should_continue() is polled
@@ -175,6 +176,7 @@ class TranscriptionService:
             )
 
         lines: list[str] = []
+        transcript_segments: list[TranscriptSegment] = []
         for segment in segments:
             if should_continue is not None and not should_continue():
                 raise TranscriptionCancelled()
@@ -182,10 +184,17 @@ class TranscriptionService:
             text = segment.text.strip()
             if text:
                 lines.append(text)
+                transcript_segments.append(
+                    TranscriptSegment(
+                        start=float(segment.start),
+                        end=float(segment.end),
+                        text=text,
+                    )
+                )
             if on_segment:
                 on_segment(segment, info)
 
         duration = float(info.duration)
         elapsed = time.time() - start
         full_text = "\n".join(lines)
-        return full_text, duration, elapsed
+        return full_text, transcript_segments, duration, elapsed

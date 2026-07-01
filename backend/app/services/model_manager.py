@@ -1,10 +1,12 @@
 import os
+import shutil
 import threading
 from pathlib import Path
 
 from app.core.config import settings
 from app.models.schemas import ModelDownloadStatus, ModelWithStatus
 from app.services.model_catalog import get_model_by_id, get_model_catalog
+from app.services.settings_store import load_settings
 
 
 class ModelManager:
@@ -173,6 +175,26 @@ class ModelManager:
                     error=str(exc),
                 )
 
+
+    def delete_model(self, model_id: str) -> None:
+        if not get_model_by_id(model_id):
+            raise ValueError(f"Unknown model: {model_id}")
+
+        with self._download_lock:
+            if (
+                self._download_status.status == "downloading"
+                and self._download_status.model_id == model_id
+            ):
+                raise RuntimeError(f"Cannot delete {model_id} while it is downloading.")
+
+        model_dir = self._model_dir(model_id)
+        if model_dir.exists():
+            shutil.rmtree(model_dir)
+
+        if load_settings().model == model_id:
+            from app.services.transcription import TranscriptionService
+
+            TranscriptionService.get_instance().unload_model()
 
     def migrate_legacy_downloads(self) -> None:
         """Move flat models/ downloads from older builds into per-model folders."""

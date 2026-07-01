@@ -3,6 +3,8 @@ import type {
   ActivityLogEntry,
   AppSettings,
   CreateJobRequest,
+  DiarizationDownloadStatus,
+  DiarizationStatus,
   ModelDownloadStatus,
   ModelWithStatus,
   OutputFormatOption,
@@ -82,10 +84,26 @@ export const api = {
   downloadModel: (modelId: string) =>
     request<ModelDownloadStatus>(`/settings/models/${modelId}/download`, { method: 'POST' }),
 
+  deleteModel: (modelId: string) =>
+    request<{ status: string; model_id: string }>(`/settings/models/${modelId}`, {
+      method: 'DELETE'
+    }),
+
   getModelDownloadStatus: () =>
     request<ModelDownloadStatus>('/settings/models/download-status'),
 
   getOutputFormats: () => request<OutputFormatOption[]>('/settings/output-formats'),
 
-  getSystemInfo: () => request<SystemInfo>('/settings/system-info')
+  getSystemInfo: () => request<SystemInfo>('/settings/system-info'),
+
+  getDiarizationStatus: () => request<DiarizationStatus>('/settings/diarization-status'),
+
+  downloadDiarizationModels: () =>
+    request<DiarizationDownloadStatus>('/settings/diarization/download', { method: 'POST' }),
+
+  getDiarizationDownloadStatus: () =>
+    request<DiarizationDownloadStatus>('/settings/diarization/download-status'),
+
+  deleteDiarizationModels: () =>
+    request<{ status: string }>('/settings/diarization/models', { method: 'DELETE' })
 }

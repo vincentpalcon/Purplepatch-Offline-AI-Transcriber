@@ -13,6 +13,13 @@ def export_transcript(text: str, output_path: Path, output_format: str) -> Path:
     raise ValueError(f"Output format '{output_format}' is not yet supported")
 
 
-def build_export_path(exports_dir: Path, job_id: str, file_name: str, extension: str) -> Path:
+def build_export_path(
+    exports_dir: Path,
+    job_id: str,
+    file_name: str,
+    extension: str,
+    *,
+    suffix: str = "",
+) -> Path:
     stem = Path(file_name).stem
-    return exports_dir / f"{stem}_{job_id[:8]}.{extension}"
+    return exports_dir / f"{stem}_{job_id[:8]}{suffix}.{extension}"

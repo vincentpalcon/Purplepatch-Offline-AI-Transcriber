@@ -23,6 +23,7 @@ export interface JobProgress {
   current_speaker: string | null
   speed_rtf: number | null
   live_transcript: string
+  live_transcript_speakers: string
 }
 
 export interface SystemStats {
@@ -48,6 +49,7 @@ export interface TranscriptionJob {
   progress: JobProgress
   error_message: string | null
   export_path: string | null
+  export_path_speakers: string | null
 }
 
 export interface ActivityLogEntry {
@@ -78,6 +80,31 @@ export interface AppSettings {
   export_dir: string | null
   vocabulary: string | null
   fast_batched: boolean
+  enable_speaker_labels: boolean
+  huggingface_token: string | null
+  diarization_min_speakers: number | null
+  diarization_max_speakers: number | null
+}
+
+export interface DiarizationDownloadStatus {
+  status: 'idle' | 'downloading' | 'completed' | 'error'
+  progress_percent: number
+  message: string
+  error: string | null
+  downloaded: boolean
+  local_size_mb: number | null
+}
+
+export interface DiarizationStatus {
+  pyannote_installed: boolean
+  token_configured: boolean
+  downloaded: boolean
+  pipeline_loaded: boolean
+  pipeline_id: string
+  local_size_mb: number | null
+  estimated_size_mb: number
+  device: string | null
+  message: string
 }
 
 export interface UpdateSettingsRequest {
@@ -92,6 +119,10 @@ export interface UpdateSettingsRequest {
   export_dir?: string | null
   vocabulary?: string | null
   fast_batched?: boolean
+  enable_speaker_labels?: boolean
+  huggingface_token?: string | null
+  diarization_min_speakers?: number | null
+  diarization_max_speakers?: number | null
 }
 
 export interface ModelInfo {

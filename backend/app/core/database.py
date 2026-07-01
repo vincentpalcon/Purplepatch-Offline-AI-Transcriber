@@ -64,7 +64,14 @@ class Database:
                 );
                 """
             )
+            await self._migrate_jobs_table(db)
             await db.commit()
+
+    async def _migrate_jobs_table(self, db: aiosqlite.Connection) -> None:
+        cursor = await db.execute("PRAGMA table_info(jobs)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if "export_path_speakers" not in columns:
+            await db.execute("ALTER TABLE jobs ADD COLUMN export_path_speakers TEXT")
 
     async def create_job(
         self,
@@ -158,6 +165,7 @@ class Database:
         progress: JobProgress | None = None,
         error_message: str | None = None,
         export_path: str | None = None,
+        export_path_speakers: str | None = None,
         clear_error: bool = False,
     ) -> TranscriptionJob | None:
         job = await self.get_job(job_id)
@@ -174,6 +182,8 @@ class Database:
             job.error_message = None
         if export_path is not None:
             job.export_path = export_path
+        if export_path_speakers is not None:
+            job.export_path_speakers = export_path_speakers
 
         job.updated_at = _utcnow()
 
@@ -182,7 +192,7 @@ class Database:
                 """
                 UPDATE jobs
                 SET status = ?, updated_at = ?, progress_json = ?,
-                    error_message = ?, export_path = ?
+                    error_message = ?, export_path = ?, export_path_speakers = ?
                 WHERE id = ?
                 """,
                 (
@@ -191,6 +201,7 @@ class Database:
                     json.dumps(job.progress.model_dump()),
                     job.error_message,
                     job.export_path,
+                    job.export_path_speakers,
                     job_id,
                 ),
             )
@@ -266,6 +277,9 @@ class Database:
             progress=JobProgress(**progress_data),
             error_message=row["error_message"],
             export_path=row["export_path"],
+            export_path_speakers=row["export_path_speakers"]
+            if "export_path_speakers" in row.keys()
+            else None,
             model=row["model"],
             language=row["language"],
         )

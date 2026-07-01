@@ -39,7 +39,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   onboarding_complete: false,
   export_dir: null,
   vocabulary: null,
-  fast_batched: false
+  fast_batched: false,
+  enable_speaker_labels: true,
+  huggingface_token: null,
+  diarization_min_speakers: null,
+  diarization_max_speakers: null
 }
 
 type AppView = 'main' | 'settings'
@@ -169,9 +173,9 @@ export default function App() {
     }
   }
 
-  const handleOpenExport = async () => {
-    if (selectedJob?.export_path) {
-      await window.electronAPI.showItemInFolder(selectedJob.export_path)
+  const handleOpenExport = async (path: string | null | undefined) => {
+    if (path) {
+      await window.electronAPI.showItemInFolder(path)
     }
   }
 
@@ -349,11 +353,20 @@ export default function App() {
                   )}
                   {selectedJob.export_path && (
                     <button
-                      onClick={handleOpenExport}
+                      onClick={() => handleOpenExport(selectedJob.export_path)}
                       className="flex items-center gap-2 rounded-lg border border-surface-border bg-surface-raised px-3 py-2 text-sm text-slate-300 hover:bg-surface-overlay"
                     >
                       <FolderOpen className="h-4 w-4" />
-                      Open Export
+                      Pure Transcript
+                    </button>
+                  )}
+                  {selectedJob.export_path_speakers && (
+                    <button
+                      onClick={() => handleOpenExport(selectedJob.export_path_speakers)}
+                      className="flex items-center gap-2 rounded-lg border border-surface-border bg-surface-raised px-3 py-2 text-sm text-slate-300 hover:bg-surface-overlay"
+                    >
+                      <FolderOpen className="h-4 w-4" />
+                      Speaker Transcript
                     </button>
                   )}
                 </div>
@@ -366,7 +379,17 @@ export default function App() {
 
               <ProgressDashboard progress={selectedJob.progress} systemStats={systemStats} />
 
-              <TranscriptPreview text={selectedJob.progress.live_transcript} />
+              <div className="grid gap-4 lg:grid-cols-2">
+                <TranscriptPreview
+                  title="Live Transcript (Pure)"
+                  text={selectedJob.progress.live_transcript}
+                />
+                <TranscriptPreview
+                  title="Live Transcript (Speakers)"
+                  text={selectedJob.progress.live_transcript_speakers ?? ''}
+                  emptyMessage="Speaker-labeled transcript will appear here as processing begins..."
+                />
+              </div>
 
               <ActivityLog entries={activityLog} />
             </div>

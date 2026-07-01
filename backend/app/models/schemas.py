@@ -25,6 +25,13 @@ class PipelineStage(str, Enum):
     EXPORT = "export"
 
 
+class TranscriptSegment(BaseModel):
+    start: float
+    end: float
+    text: str
+    speaker: int | None = None
+
+
 class JobProgress(BaseModel):
     overall_percent: float = 0.0
     current_stage: PipelineStage = PipelineStage.METADATA
@@ -35,6 +42,7 @@ class JobProgress(BaseModel):
     current_speaker: str | None = None
     speed_rtf: float | None = None
     live_transcript: str = ""
+    live_transcript_speakers: str = ""
 
 
 class TranscriptionJob(BaseModel):
@@ -47,6 +55,7 @@ class TranscriptionJob(BaseModel):
     progress: JobProgress
     error_message: str | None = None
     export_path: str | None = None
+    export_path_speakers: str | None = None
     model: str | None = None
     language: str | None = None
 
@@ -105,6 +114,10 @@ class AppSettings(BaseModel):
     # low-pause speech (batched VAD-chunk boundaries can lose content that
     # sequential decoding preserves). Faster, but not safe as a default.
     fast_batched: bool = False
+    enable_speaker_labels: bool = True
+    huggingface_token: str | None = None
+    diarization_min_speakers: int | None = Field(default=None, ge=1, le=20)
+    diarization_max_speakers: int | None = Field(default=None, ge=1, le=20)
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -119,6 +132,31 @@ class UpdateSettingsRequest(BaseModel):
     export_dir: str | None = None
     vocabulary: str | None = None
     fast_batched: bool | None = None
+    enable_speaker_labels: bool | None = None
+    huggingface_token: str | None = None
+    diarization_min_speakers: int | None = Field(default=None, ge=1, le=20)
+    diarization_max_speakers: int | None = Field(default=None, ge=1, le=20)
+
+
+class DiarizationDownloadStatus(BaseModel):
+    status: Literal["idle", "downloading", "completed", "error"] = "idle"
+    progress_percent: float = 0
+    message: str = ""
+    error: str | None = None
+    downloaded: bool = False
+    local_size_mb: float | None = None
+
+
+class DiarizationStatus(BaseModel):
+    pyannote_installed: bool
+    token_configured: bool
+    downloaded: bool = False
+    pipeline_loaded: bool
+    pipeline_id: str
+    local_size_mb: float | None = None
+    estimated_size_mb: float = 1200.0
+    device: str | None = None
+    message: str = ""
 
 
 class ModelInfo(BaseModel):

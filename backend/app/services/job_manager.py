@@ -4,9 +4,17 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.core.database import db
-from app.models.schemas import JobProgress, JobStatus, PipelineStage
+from app.models.schemas import JobProgress, JobStatus, PipelineStage, TranscriptSegment
+from app.services.diarization import (
+    DiarizationError,
+    DiarizationService,
+    SpeakerRegion,
+    diarize_audio,
+    speaker_for_interval,
+)
 from app.services.export import build_export_path, export_transcript
 from app.services.settings_store import load_settings
+from app.services.transcript_format import format_pure_transcript, format_speaker_transcript
 from app.services.transcription import TranscriptionCancelled, TranscriptionService
 
 # Overall progress range spent inside the actual whisper inference call.
@@ -115,11 +123,52 @@ class JobManager:
 
             await update_stage(PipelineStage.STREAMING, 10.0, "Preparing audio stream")
             await update_stage(PipelineStage.VAD, 15.0, "Voice activity detection (built into Whisper)")
-            await update_stage(PipelineStage.DIARIZATION, 20.0, "Speaker diarization (Phase 3)")
-            await update_stage(PipelineStage.CHUNKING, 25.0, "Preparing transcription chunks")
+
             app_settings = load_settings()
             model_name = job.model or app_settings.model
+            speaker_regions: list[SpeakerRegion] = []
 
+            if app_settings.enable_speaker_labels:
+                diarization_service = DiarizationService.get_instance()
+                if not diarization_service.is_downloaded():
+                    raise RuntimeError(
+                        "Speaker diarization models are not downloaded. "
+                        "Go to Settings → Models to download them first."
+                    )
+
+                await update_stage(
+                    PipelineStage.DIARIZATION,
+                    20.0,
+                    "Identifying speakers with pyannote.audio",
+                )
+                loop = asyncio.get_event_loop()
+                try:
+                    speaker_regions = await loop.run_in_executor(
+                        None,
+                        lambda: diarize_audio(
+                            job.file_path,
+                            hf_token=app_settings.huggingface_token,
+                            device_pref=app_settings.device,
+                            min_speakers=app_settings.diarization_min_speakers,
+                            max_speakers=app_settings.diarization_max_speakers,
+                        ),
+                    )
+                except DiarizationError as exc:
+                    raise RuntimeError(str(exc)) from exc
+                speaker_count = len({region.speaker for region in speaker_regions}) or 1
+                await db.add_activity(
+                    f"pyannote detected {speaker_count} speaker(s)",
+                    level="info",
+                    job_id=job_id,
+                )
+            else:
+                await update_stage(
+                    PipelineStage.DIARIZATION,
+                    20.0,
+                    "Speaker labels disabled in settings",
+                )
+
+            await update_stage(PipelineStage.CHUNKING, 25.0, "Preparing transcription chunks")
             await update_stage(
                 PipelineStage.TRANSCRIPTION,
                 TRANSCRIPTION_START_PERCENT,
@@ -127,16 +176,31 @@ class JobManager:
             )
 
             loop = asyncio.get_event_loop()
-            live_lines: list[str] = []
+            live_segments: list[TranscriptSegment] = []
             transcription_start = time.time()
             last_update = 0.0
             was_paused = False
 
+            def assign_speaker(segment: TranscriptSegment) -> TranscriptSegment:
+                if not app_settings.enable_speaker_labels:
+                    return segment.model_copy(update={"speaker": 1})
+                speaker = speaker_for_interval(segment.start, segment.end, speaker_regions)
+                return segment.model_copy(update={"speaker": speaker})
+
             def on_segment(segment, info) -> None:
                 nonlocal last_update
                 text = segment.text.strip()
-                if text:
-                    live_lines.append(text)
+                if not text:
+                    return
+
+                assigned = assign_speaker(
+                    TranscriptSegment(
+                        start=float(segment.start),
+                        end=float(segment.end),
+                        text=text,
+                    )
+                )
+                live_segments.append(assigned)
 
                 now = time.time()
                 near_end = info.duration and (info.duration - segment.end) < 0.5
@@ -155,7 +219,11 @@ class JobManager:
                 progress.overall_percent = TRANSCRIPTION_START_PERCENT + fraction * (
                     TRANSCRIPTION_END_PERCENT - TRANSCRIPTION_START_PERCENT
                 )
-                progress.live_transcript = "\n".join(live_lines)
+                progress.live_transcript = format_pure_transcript(live_segments)
+                progress.live_transcript_speakers = format_speaker_transcript(live_segments)
+                progress.current_speaker = (
+                    f"Speaker {assigned.speaker}" if assigned.speaker else None
+                )
                 progress.speed_rtf = rtf
                 progress.eta_seconds = eta
                 progress.elapsed_seconds = now - start_time
@@ -188,7 +256,7 @@ class JobManager:
                 return True
 
             try:
-                full_text, duration, proc_time = await loop.run_in_executor(
+                full_text, transcript_segments, duration, proc_time = await loop.run_in_executor(
                     None,
                     lambda: self._transcription.transcribe_file(
                         job.file_path,
@@ -199,13 +267,25 @@ class JobManager:
                     ),
                 )
             except TranscriptionCancelled:
-                progress.live_transcript = "\n".join(live_lines)
+                progress.live_transcript = format_pure_transcript(live_segments)
+                progress.live_transcript_speakers = format_speaker_transcript(live_segments)
                 progress.elapsed_seconds = time.time() - start_time
                 await db.update_job(job_id, status=JobStatus.CANCELLED, progress=progress)
                 await db.add_activity("Job cancelled", level="warn", job_id=job_id)
                 return
 
+            if app_settings.enable_speaker_labels:
+                labeled_segments = [assign_speaker(segment) for segment in transcript_segments]
+            else:
+                labeled_segments = [
+                    segment.model_copy(update={"speaker": 1}) for segment in transcript_segments
+                ]
+
+            full_text = format_pure_transcript(labeled_segments)
+            speaker_text = format_speaker_transcript(labeled_segments)
+
             progress.live_transcript = full_text
+            progress.live_transcript_speakers = speaker_text
             progress.speed_rtf = duration / proc_time if proc_time > 0 else None
             progress.eta_seconds = None
             progress.total_chunks = 1
@@ -227,6 +307,15 @@ class JobManager:
             )
             export_transcript(full_text, export_path, output_format)
 
+            export_path_speakers = build_export_path(
+                export_dir,
+                job_id,
+                job.file_name,
+                output_format,
+                suffix="_speakers",
+            )
+            export_transcript(speaker_text, export_path_speakers, output_format)
+
             progress.overall_percent = 100.0
             progress.current_stage = PipelineStage.EXPORT
             progress.elapsed_seconds = time.time() - start_time
@@ -236,9 +325,10 @@ class JobManager:
                 status=JobStatus.COMPLETED,
                 progress=progress,
                 export_path=str(export_path),
+                export_path_speakers=str(export_path_speakers),
             )
             await db.add_activity(
-                f"Export saved: {export_path.name}",
+                f"Exports saved: {export_path.name}, {export_path_speakers.name}",
                 level="success",
                 job_id=job_id,
             )

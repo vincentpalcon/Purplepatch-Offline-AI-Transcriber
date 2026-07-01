@@ -12,9 +12,12 @@ import {
 import clsx from 'clsx'
 import { api } from '@/lib/api'
 import { formatMb, formatPercent } from '@/lib/format'
+import { DiarizationModelCard } from '@/components/DiarizationModelCard'
 import { ModelSelector } from '@/components/ModelSelector'
 import type {
   AppSettings,
+  DiarizationDownloadStatus,
+  DiarizationStatus,
   ModelDownloadStatus,
   ModelWithStatus,
   OutputFormatOption,
@@ -54,17 +57,22 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
   const [outputFormats, setOutputFormats] = useState<OutputFormatOption[]>([])
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null)
   const [downloadStatus, setDownloadStatus] = useState<ModelDownloadStatus | null>(null)
+  const [diarizationStatus, setDiarizationStatus] = useState<DiarizationStatus | null>(null)
+  const [diarizationDownloadStatus, setDiarizationDownloadStatus] =
+    useState<DiarizationDownloadStatus | null>(null)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const loadAll = useCallback(async () => {
-    const [s, m, f, info, dl] = await Promise.all([
+    const [s, m, f, info, dl, diarization, diarizationDl] = await Promise.all([
       api.getSettings(),
       api.getModels(),
       api.getOutputFormats(),
       api.getSystemInfo(),
-      api.getModelDownloadStatus()
+      api.getModelDownloadStatus(),
+      api.getDiarizationStatus().catch(() => null),
+      api.getDiarizationDownloadStatus().catch(() => null)
     ])
     setSettings(s)
     setDraft(s)
@@ -72,6 +80,8 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
     setOutputFormats(f)
     setSystemInfo(info)
     setDownloadStatus(dl)
+    setDiarizationStatus(diarization)
+    setDiarizationDownloadStatus(diarizationDl)
   }, [])
 
   useEffect(() => {
@@ -104,6 +114,32 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
   }, [downloadStatus?.status, loadAll])
 
   useEffect(() => {
+    if (diarizationDownloadStatus?.status !== 'downloading') return
+    const interval = setInterval(async () => {
+      try {
+        const status = await api.getDiarizationDownloadStatus()
+        setDiarizationDownloadStatus(status)
+        if (status.status === 'completed') {
+          const [diarization, info] = await Promise.all([
+            api.getDiarizationStatus(),
+            api.getSystemInfo()
+          ])
+          setDiarizationStatus(diarization)
+          setSystemInfo(info)
+          setMessage('Diarization models downloaded successfully.')
+        }
+        if (status.status === 'error') {
+          setError(status.error ?? 'Diarization download failed')
+          await loadAll()
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to check diarization download')
+      }
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [diarizationDownloadStatus?.status, loadAll])
+
+  useEffect(() => {
     if (tab !== 'system') return
     const interval = setInterval(async () => {
       try {
@@ -131,18 +167,84 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
         vad_filter: draft.vad_filter,
         export_dir: draft.export_dir,
         vocabulary: draft.vocabulary,
-        fast_batched: draft.fast_batched
+        fast_batched: draft.fast_batched,
+        enable_speaker_labels: draft.enable_speaker_labels,
+        huggingface_token: draft.huggingface_token,
+        diarization_min_speakers: draft.diarization_min_speakers,
+        diarization_max_speakers: draft.diarization_max_speakers
       })
       setSettings(updated)
       setDraft(updated)
-      const [m, info] = await Promise.all([api.getModels(), api.getSystemInfo()])
+      const [m, info, diarization] = await Promise.all([
+        api.getModels(),
+        api.getSystemInfo(),
+        api.getDiarizationStatus().catch(() => null)
+      ])
       setModels(m)
       setSystemInfo(info)
+      setDiarizationStatus(diarization)
       setMessage('Settings saved successfully.')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save settings')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleDownloadDiarization = async () => {
+    if (!draft?.huggingface_token) {
+      setError('Add your Hugging Face token in the Models tab before downloading.')
+      return
+    }
+
+    setError(null)
+    setMessage(null)
+    try {
+      const updated = await api.updateSettings({
+        huggingface_token: draft.huggingface_token,
+        enable_speaker_labels: draft.enable_speaker_labels,
+        diarization_min_speakers: draft.diarization_min_speakers,
+        diarization_max_speakers: draft.diarization_max_speakers
+      })
+      setSettings(updated)
+      setDraft(updated)
+
+      const status = await api.downloadDiarizationModels()
+      setDiarizationDownloadStatus(status)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start diarization download')
+    }
+  }
+
+  const handleDeleteDiarization = async () => {
+    if (!window.confirm('Delete diarization models? You can re-download them later.')) return
+    setError(null)
+    try {
+      await api.deleteDiarizationModels()
+      await loadAll()
+      setMessage('Diarization models deleted.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete diarization models')
+    }
+  }
+
+  const handleDeleteModel = async (modelId: string) => {
+    if (
+      !window.confirm(
+        `Delete ${modelId}? You will need to download it again before transcribing with this model.`
+      )
+    ) {
+      return
+    }
+    setError(null)
+    try {
+      await api.deleteModel(modelId)
+      const [m, info] = await Promise.all([api.getModels(), api.getSystemInfo()])
+      setModels(m)
+      setSystemInfo(info)
+      setMessage(`${modelId} deleted.`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete model')
     }
   }
 
@@ -389,6 +491,59 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
                         clips where a gap is low-stakes.
                       </p>
                     </Field>
+                    <Field label="Speaker labels">
+                      <label className="flex items-center gap-2 text-sm text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={draft.enable_speaker_labels ?? true}
+                          onChange={(e) =>
+                            updateDraft({ enable_speaker_labels: e.target.checked })
+                          }
+                        />
+                        Identify speakers and export a second labeled transcript
+                      </label>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Download diarization models in the Models tab before transcribing.
+                      </p>
+                    </Field>
+                    {draft.enable_speaker_labels && (
+                      <div className="grid gap-4 sm:grid-cols-2 sm:col-span-2">
+                        <Field label="Min speakers (optional)">
+                          <input
+                            type="number"
+                            min={1}
+                            max={20}
+                            value={draft.diarization_min_speakers ?? ''}
+                            onChange={(e) =>
+                              updateDraft({
+                                diarization_min_speakers: e.target.value
+                                  ? Number(e.target.value)
+                                  : null
+                              })
+                            }
+                            placeholder="Auto"
+                            className="w-full rounded-lg border border-surface-border bg-surface-overlay px-3 py-2 text-sm text-slate-200"
+                          />
+                        </Field>
+                        <Field label="Max speakers (optional)">
+                          <input
+                            type="number"
+                            min={1}
+                            max={20}
+                            value={draft.diarization_max_speakers ?? ''}
+                            onChange={(e) =>
+                              updateDraft({
+                                diarization_max_speakers: e.target.value
+                                  ? Number(e.target.value)
+                                  : null
+                              })
+                            }
+                            placeholder="Auto"
+                            className="w-full rounded-lg border border-surface-border bg-surface-overlay px-3 py-2 text-sm text-slate-200"
+                          />
+                        </Field>
+                      </div>
+                    )}
                   </div>
                 </Section>
 
@@ -408,18 +563,39 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
             )}
 
             {tab === 'models' && (
-              <Section
-                title="Whisper Models"
-                description="Select the active model. It must be downloaded before use."
-              >
-                <ModelSelector
-                  models={models}
-                  selectedModelId={draft.model}
-                  onSelect={(id) => updateDraft({ model: id })}
-                  onDownload={handleDownload}
-                  downloadStatus={downloadStatus}
-                />
-              </Section>
+              <>
+                <Section
+                  title="Whisper Models"
+                  description="Select the active model. Download before use — delete to free disk space and re-download anytime."
+                >
+                  <ModelSelector
+                    models={models}
+                    selectedModelId={draft.model}
+                    onSelect={(id) => updateDraft({ model: id })}
+                    onDownload={handleDownload}
+                    onDelete={handleDeleteModel}
+                    downloadStatus={downloadStatus}
+                  />
+                </Section>
+
+                {draft.enable_speaker_labels && (
+                  <Section
+                    title="Speaker Diarization"
+                    description="Download pyannote models before transcribing with speaker labels. Shows live progress during download."
+                  >
+                    <DiarizationModelCard
+                      status={diarizationStatus}
+                      downloadStatus={diarizationDownloadStatus}
+                      huggingfaceToken={draft.huggingface_token ?? ''}
+                      onTokenChange={(token) =>
+                        updateDraft({ huggingface_token: token.trim() || null })
+                      }
+                      onDownload={handleDownloadDiarization}
+                      onDelete={handleDeleteDiarization}
+                    />
+                  </Section>
+                )}
+              </>
             )}
 
             {tab === 'system' && systemInfo && (

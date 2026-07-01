@@ -1,4 +1,4 @@
-import { CheckCircle2, Circle, Download, HardDrive, Loader2, Zap } from 'lucide-react'
+import { CheckCircle2, Circle, Download, HardDrive, Loader2, Trash2, Zap } from 'lucide-react'
 import clsx from 'clsx'
 import { formatMb } from '@/lib/format'
 import type { ModelDownloadStatus, ModelWithStatus } from '@/types'
@@ -8,6 +8,7 @@ interface ModelSelectorProps {
   selectedModelId: string
   onSelect: (modelId: string) => void
   onDownload: (modelId: string) => void
+  onDelete?: (modelId: string) => void
   downloadStatus: ModelDownloadStatus | null
   compact?: boolean
 }
@@ -17,6 +18,7 @@ export function ModelSelector({
   selectedModelId,
   onSelect,
   onDownload,
+  onDelete,
   downloadStatus,
   compact = false
 }: ModelSelectorProps) {
@@ -71,11 +73,27 @@ export function ModelSelector({
                 </div>
               </div>
 
-              <div className="shrink-0">
+              <div className="flex shrink-0 items-center gap-2">
                 {model.downloaded ? (
-                  <span className="rounded-full bg-status-running/20 px-2 py-1 text-[10px] font-semibold uppercase text-status-running">
-                    Ready
-                  </span>
+                  <>
+                    <span className="rounded-full bg-status-running/20 px-2 py-1 text-[10px] font-semibold uppercase text-status-running">
+                      Ready
+                    </span>
+                    {onDelete && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onDelete(model.id)
+                        }}
+                        disabled={isDownloading}
+                        className="flex items-center gap-1 rounded-lg border border-status-failed/30 bg-status-failed/10 px-2 py-1 text-[10px] font-medium text-status-failed hover:bg-status-failed/20 disabled:opacity-50"
+                        title="Delete model to free disk space"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        Delete
+                      </button>
+                    )}
+                  </>
                 ) : isDownloading ? (
                   <span className="flex items-center gap-1 rounded-full bg-accent-muted/40 px-2 py-1 text-[10px] font-semibold uppercase text-accent">
                     <Loader2 className="h-3 w-3 animate-spin" />
