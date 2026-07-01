@@ -19,7 +19,10 @@
     "dist:publish:mac": "npm run bundle:python:mac && npm run build && electron-builder --mac --arm64 --publish always",
     "dist:publish:win": "npm run bundle:python:win && npm run build && electron-builder --win --x64 --publish always",
     "backend:setup": "cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt",
-    "backend:dev": "cd backend && . .venv/bin/activate && uvicorn app.main:app --reload --host 127.0.0.1 --port 8742"
+    "backend:dev": "cd backend && . .venv/bin/activate && uvicorn app.main:app --reload --host 127.0.0.1 --port 8742",
+    "release:patch": "npm version patch && git push --follow-tags",
+    "release:minor": "npm version minor && git push --follow-tags",
+    "release:major": "npm version major && git push --follow-tags"
   },
   "dependencies": {
     "clsx": "^2.1.1",

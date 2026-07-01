@@ -12,6 +12,13 @@ if TYPE_CHECKING:
 
 BATCH_SIZE = 8
 
+_CUDA_RUNTIME_ERROR_MARKERS = ("cublas", "cudnn", "cuda", ".dll")
+
+
+def _looks_like_cuda_runtime_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(marker in message for marker in _CUDA_RUNTIME_ERROR_MARKERS)
+
 
 class TranscriptionCancelled(Exception):
     """Raised from within transcribe_file to stop mid-transcription when cancelled."""
@@ -78,13 +85,14 @@ class TranscriptionService:
         self._batched_pipeline = None
         self._loaded_model_name = None
 
-    def load_model(self, model_name: str | None = None) -> "WhisperModel":
-        from faster_whisper import WhisperModel
+    def load_model(
+        self, model_name: str | None = None, *, force_cpu: bool = False
+    ) -> "WhisperModel":
         from app.services.settings_store import load_settings
 
         app_settings = load_settings()
         name = model_name or app_settings.model
-        device = self._resolve_device(app_settings.device)
+        device = "cpu" if force_cpu else self._resolve_device(app_settings.device)
         compute_type = (
             app_settings.compute_type if device == "cpu" else "float16"
         )
@@ -92,28 +100,49 @@ class TranscriptionService:
         if (
             self._model is not None
             and self._loaded_model_name == name
+            and self._resolved_device == device
         ):
             return self._model
 
         self.unload_model()
 
         local_path = model_manager.get_model_path(name)
-        if local_path:
-            self._model = WhisperModel(
-                str(local_path),
-                device=device,
-                compute_type=compute_type,
+        try:
+            self._model = self._load_ctranslate2_model(
+                name, local_path, device, compute_type
             )
-        else:
-            self._model = WhisperModel(
-                name,
-                device=device,
-                compute_type=compute_type,
-                download_root=str(settings.models_dir),
+        except Exception:
+            # get_cuda_device_count() only confirms a GPU is physically
+            # present (via NVML) -- it doesn't confirm the CUDA runtime libs
+            # ctranslate2 needs (cuBLAS/cuDNN) are actually installed and
+            # loadable. When they aren't, model construction itself throws
+            # (e.g. "Library cublas64_12.dll is not found"); fall back to
+            # CPU rather than failing every job on this machine.
+            if device != "cuda":
+                raise
+            device = "cpu"
+            compute_type = app_settings.compute_type
+            self._model = self._load_ctranslate2_model(
+                name, local_path, device, compute_type
             )
 
+        self._resolved_device = device
         self._loaded_model_name = name
         return self._model
+
+    def _load_ctranslate2_model(
+        self, name: str, local_path: Path | None, device: str, compute_type: str
+    ) -> "WhisperModel":
+        from faster_whisper import WhisperModel
+
+        if local_path:
+            return WhisperModel(str(local_path), device=device, compute_type=compute_type)
+        return WhisperModel(
+            name,
+            device=device,
+            compute_type=compute_type,
+            download_root=str(settings.models_dir),
+        )
 
     def _get_batched_pipeline(self, model: "WhisperModel") -> "BatchedInferencePipeline":
         from faster_whisper import BatchedInferencePipeline
@@ -148,6 +177,32 @@ class TranscriptionService:
         app_settings = load_settings()
         initial_prompt = app_settings.vocabulary.strip() if app_settings.vocabulary else None
 
+        try:
+            return self._transcribe_once(
+                model, path, app_settings, language, initial_prompt, on_segment, should_continue
+            )
+        except RuntimeError as exc:
+            # ctranslate2 only touches the CUDA runtime (cuBLAS/cuDNN) on
+            # first inference, not at model construction, so a broken/missing
+            # install surfaces here rather than in load_model(). Fall back to
+            # CPU once instead of failing every job on this machine.
+            if self._resolved_device != "cuda" or not _looks_like_cuda_runtime_error(exc):
+                raise
+            model = self.load_model(model_name, force_cpu=True)
+            return self._transcribe_once(
+                model, path, app_settings, language, initial_prompt, on_segment, should_continue
+            )
+
+    def _transcribe_once(
+        self,
+        model: "WhisperModel",
+        path: Path,
+        app_settings,
+        language: str | None,
+        initial_prompt: str | None,
+        on_segment,
+        should_continue,
+    ) -> tuple[str, list[TranscriptSegment], float, float]:
         start = time.time()
         if app_settings.fast_batched:
             # BatchedInferencePipeline parallelizes VAD-segmented chunks for a

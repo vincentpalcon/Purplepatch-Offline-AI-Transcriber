@@ -52,6 +52,21 @@ def _wrap_load_error(exc: Exception) -> DiarizationError:
     return DiarizationError(f"Failed to load pyannote pipeline: {message}")
 
 
+def _load_waveform(file_path: str) -> dict:
+    # pyannote.audio 4.x decodes file paths via torchcodec, which (unlike
+    # faster-whisper's PyAV-based decoding) requires a system FFmpeg install
+    # with shared libraries -- something this app deliberately doesn't
+    # require. Decoding ourselves with the same PyAV path faster-whisper
+    # already uses and handing pyannote a waveform dict sidesteps torchcodec
+    # entirely (both loading paths are explicitly supported by pyannote).
+    import torch
+    from faster_whisper.audio import decode_audio
+
+    audio = decode_audio(file_path, sampling_rate=16000)
+    waveform = torch.from_numpy(audio).unsqueeze(0)
+    return {"waveform": waveform, "sample_rate": 16000}
+
+
 def _dir_size_bytes(path: Path) -> int:
     if not path.exists():
         return 0
@@ -392,7 +407,12 @@ class DiarizationService:
             pipeline_kwargs["max_speakers"] = max_speakers
 
         try:
-            output = pipeline(file_path, **pipeline_kwargs)
+            audio_input = _load_waveform(file_path)
+        except Exception as exc:
+            raise DiarizationError(f"Failed to decode audio for diarization: {exc}") from exc
+
+        try:
+            output = pipeline(audio_input, **pipeline_kwargs)
         except Exception as exc:
             raise _wrap_load_error(exc) if "gated" in str(exc).lower() else DiarizationError(
                 f"pyannote diarization failed: {exc}"
