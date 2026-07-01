@@ -176,7 +176,9 @@ async function main() {
   // Cross-installing the Windows runtime only needs *some* working pip to
   // fetch+unpack wheels (it never executes target code), so prefer the mac
   // runtime we just built when available, otherwise fall back to the host.
-  let crossInstallPython = 'python3'
+  // On a native Windows host (e.g. CI running only the "win" target),
+  // "python3" typically doesn't exist -- Windows installs provide "python".
+  let crossInstallPython = process.platform === 'win32' ? 'python' : 'python3'
   if (names.includes('mac')) {
     await buildTarget('mac', null)
     crossInstallPython = TARGETS.mac.pythonBin(TARGETS.mac.dir)

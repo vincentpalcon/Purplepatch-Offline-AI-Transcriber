@@ -6,7 +6,6 @@ from app.core.config import settings
 from app.core.database import db
 from app.models.schemas import JobProgress, JobStatus, PipelineStage, TranscriptSegment
 from app.services.diarization import (
-    DiarizationError,
     DiarizationService,
     SpeakerRegion,
     diarize_audio,
@@ -168,7 +167,14 @@ class JobManager:
                                 max_speakers=app_settings.diarization_max_speakers,
                             ),
                         )
-                    except DiarizationError as exc:
+                    except Exception as exc:
+                        # Broad on purpose: diarization.py converts what it can
+                        # into DiarizationError, but a broken torch/pyannote
+                        # install on a given machine can still surface as
+                        # something else entirely (OSError, RuntimeError from a
+                        # native DLL/ABI issue, etc.). When diarization is
+                        # meant to be optional, no diarization failure should
+                        # ever fail the whole transcription job.
                         if app_settings.diarization_optional:
                             await db.add_activity(
                                 f"Diarization failed; continuing without speaker labels: {exc}",

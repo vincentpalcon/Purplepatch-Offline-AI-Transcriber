@@ -90,7 +90,11 @@ class DiarizationService:
             import pyannote.audio  # noqa: F401
 
             return True
-        except ImportError:
+        except Exception:
+            # Broad on purpose: a broken torch/pyannote install can fail with
+            # OSError (missing DLL on Windows), RuntimeError (torch ABI
+            # mismatch), etc. -- not just ImportError. Any failure here means
+            # diarization isn't usable, which callers treat as optional.
             return False
 
     def _cache_root(self) -> Path:
@@ -319,10 +323,18 @@ class DiarizationService:
         ):
             return self._pipeline
 
-        from pyannote.audio import Pipeline
+        try:
+            from pyannote.audio import Pipeline
+        except Exception as exc:
+            raise DiarizationError(f"Failed to import pyannote.audio: {exc}") from exc
 
         self._configure_hf_cache()
-        torch_device = self._resolve_torch_device(device_pref)
+        try:
+            torch_device = self._resolve_torch_device(device_pref)
+        except DiarizationError:
+            raise
+        except Exception as exc:
+            raise DiarizationError(f"Failed to resolve torch device: {exc}") from exc
 
         try:
             try:
@@ -350,7 +362,7 @@ class DiarizationService:
             import torch
 
             return "cuda" if torch.cuda.is_available() else "cpu"
-        except ImportError:
+        except Exception:
             return "cpu"
 
     def diarize_file(
