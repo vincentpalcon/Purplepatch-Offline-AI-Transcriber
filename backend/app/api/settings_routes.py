@@ -33,6 +33,20 @@ async def put_settings(request: UpdateSettingsRequest) -> AppSettings:
         if not model:
             raise HTTPException(status_code=400, detail="Unknown model")
 
+    if updates.get("export_dir"):
+        from pathlib import Path
+
+        export_path = Path(updates["export_dir"])
+        try:
+            export_path.mkdir(parents=True, exist_ok=True)
+            probe = export_path / ".write_test"
+            probe.touch()
+            probe.unlink()
+        except OSError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Folder is not writable: {exc}"
+            ) from exc
+
     current = load_settings()
     updated = current.model_copy(update=updates)
     saved = save_settings(updated)

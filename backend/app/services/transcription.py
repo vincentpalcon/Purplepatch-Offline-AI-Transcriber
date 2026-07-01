@@ -7,7 +7,13 @@ from app.core.config import settings
 from app.services.model_manager import model_manager
 
 if TYPE_CHECKING:
-    from faster_whisper import WhisperModel
+    from faster_whisper import BatchedInferencePipeline, WhisperModel
+
+BATCH_SIZE = 8
+
+
+class TranscriptionCancelled(Exception):
+    """Raised from within transcribe_file to stop mid-transcription when cancelled."""
 
 
 class TranscriptionService:
@@ -16,6 +22,7 @@ class TranscriptionService:
 
     def __init__(self) -> None:
         self._model: WhisperModel | None = None
+        self._batched_pipeline: BatchedInferencePipeline | None = None
         self._loaded_model_name: str | None = None
         self._resolved_device: str | None = None
 
@@ -67,6 +74,7 @@ class TranscriptionService:
 
     def unload_model(self) -> None:
         self._model = None
+        self._batched_pipeline = None
         self._loaded_model_name = None
 
     def load_model(self, model_name: str | None = None) -> "WhisperModel":
@@ -106,14 +114,29 @@ class TranscriptionService:
         self._loaded_model_name = name
         return self._model
 
+    def _get_batched_pipeline(self, model: "WhisperModel") -> "BatchedInferencePipeline":
+        from faster_whisper import BatchedInferencePipeline
+
+        if self._batched_pipeline is None:
+            self._batched_pipeline = BatchedInferencePipeline(model=model)
+        return self._batched_pipeline
+
     def transcribe_file(
         self,
         file_path: str,
         language: str | None = None,
         model_name: str | None = None,
         on_segment=None,
+        should_continue=None,
     ) -> tuple[str, float, float]:
-        """Returns (full_text, duration_seconds, processing_seconds)."""
+        """Returns (full_text, duration_seconds, processing_seconds).
+
+        on_segment(segment, info) is called after each decoded segment, so
+        callers can report incremental progress. should_continue() is polled
+        before each segment is processed; returning False raises
+        TranscriptionCancelled to stop iterating the (lazy) segment generator
+        promptly instead of only after the whole file finishes.
+        """
         model = self.load_model(model_name)
         path = Path(file_path)
         if not path.exists():
@@ -122,22 +145,45 @@ class TranscriptionService:
         from app.services.settings_store import load_settings
 
         app_settings = load_settings()
+        initial_prompt = app_settings.vocabulary.strip() if app_settings.vocabulary else None
 
         start = time.time()
-        segments, info = model.transcribe(
-            str(path),
-            language=language or app_settings.language,
-            vad_filter=app_settings.vad_filter,
-            beam_size=app_settings.beam_size,
-        )
+        if app_settings.fast_batched:
+            # BatchedInferencePipeline parallelizes VAD-segmented chunks for a
+            # large CPU speedup (~5x measured), but it structurally depends on
+            # VAD to chunk the audio, so it always runs with VAD on regardless
+            # of the user's vad_filter setting. Measured to silently drop
+            # segments at chunk boundaries on continuous, low-pause speech
+            # (~27% of sentences missing in a controlled test vs. 0% for the
+            # sequential path below) -- opt-in only, never the default.
+            pipeline = self._get_batched_pipeline(model)
+            segments, info = pipeline.transcribe(
+                str(path),
+                language=language or app_settings.language,
+                vad_filter=True,
+                beam_size=app_settings.beam_size,
+                batch_size=BATCH_SIZE,
+                initial_prompt=initial_prompt,
+            )
+        else:
+            segments, info = model.transcribe(
+                str(path),
+                language=language or app_settings.language,
+                vad_filter=app_settings.vad_filter,
+                beam_size=app_settings.beam_size,
+                initial_prompt=initial_prompt,
+            )
 
         lines: list[str] = []
         for segment in segments:
+            if should_continue is not None and not should_continue():
+                raise TranscriptionCancelled()
+
             text = segment.text.strip()
             if text:
                 lines.append(text)
             if on_segment:
-                on_segment(segment)
+                on_segment(segment, info)
 
         duration = float(info.duration)
         elapsed = time.time() - start

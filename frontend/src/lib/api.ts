@@ -32,6 +32,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(body.detail ?? `Request failed: ${response.status}`)
   }
 
+  if (response.status === 204) return undefined as T
+
   return response.json()
 }
 
@@ -55,6 +57,11 @@ export const api = {
   cancelJob: (id: string) => request<TranscriptionJob>(`/jobs/${id}/cancel`, { method: 'POST' }),
 
   retryJob: (id: string) => request<TranscriptionJob>(`/jobs/${id}/retry`, { method: 'POST' }),
+
+  deleteJob: (id: string) => request<void>(`/jobs/${id}`, { method: 'DELETE' }),
+
+  clearFinishedJobs: () =>
+    request<{ deleted: string[] }>('/jobs/clear-finished', { method: 'POST' }),
 
   getActivityLog: (jobId?: string) =>
     request<ActivityLogEntry[]>(jobId ? `/activity?job_id=${jobId}` : '/activity'),

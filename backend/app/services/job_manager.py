@@ -7,7 +7,24 @@ from app.core.database import db
 from app.models.schemas import JobProgress, JobStatus, PipelineStage
 from app.services.export import build_export_path, export_transcript
 from app.services.settings_store import load_settings
-from app.services.transcription import TranscriptionService
+from app.services.transcription import TranscriptionCancelled, TranscriptionService
+
+# Overall progress range spent inside the actual whisper inference call.
+TRANSCRIPTION_START_PERCENT = 30.0
+TRANSCRIPTION_END_PERCENT = 85.0
+# Minimum wall-clock gap between progress writes during transcription.
+PROGRESS_UPDATE_INTERVAL_SECONDS = 1.0
+
+
+class JobCancelled(Exception):
+    """Raised from within update_stage to unwind _process_job on user cancel.
+
+    Deliberately NOT asyncio.CancelledError: that type is reserved for real
+    asyncio task cancellation (e.g. JobManager.stop()) and is a BaseException
+    subclass since Python 3.8, so raising it here would silently escape
+    _worker_loop's `except Exception` and kill the whole background worker
+    the first time a job was cancelled during an early pipeline stage.
+    """
 
 
 class JobManager:
@@ -76,13 +93,13 @@ class JobManager:
 
         async def update_stage(stage: PipelineStage, percent: float, message: str) -> None:
             if job_id in self._cancel_flags:
-                raise asyncio.CancelledError("Job cancelled")
+                raise JobCancelled()
 
             while job_id in self._pause_flags:
                 await db.update_job(job_id, status=JobStatus.PAUSED)
                 await asyncio.sleep(0.5)
                 if job_id in self._cancel_flags:
-                    raise asyncio.CancelledError("Job cancelled")
+                    raise JobCancelled()
 
             progress.current_stage = stage
             progress.overall_percent = percent
@@ -105,33 +122,95 @@ class JobManager:
 
             await update_stage(
                 PipelineStage.TRANSCRIPTION,
-                30.0,
+                TRANSCRIPTION_START_PERCENT,
                 f"Transcribing with model: {model_name}",
             )
 
+            loop = asyncio.get_event_loop()
             live_lines: list[str] = []
+            transcription_start = time.time()
+            last_update = 0.0
+            was_paused = False
 
-            def on_segment(segment) -> None:
+            def on_segment(segment, info) -> None:
+                nonlocal last_update
                 text = segment.text.strip()
                 if text:
                     live_lines.append(text)
 
-            loop = asyncio.get_event_loop()
-            full_text, duration, proc_time = await loop.run_in_executor(
-                None,
-                lambda: self._transcription.transcribe_file(
-                    job.file_path,
-                    language=job.language,
-                    model_name=model_name,
-                    on_segment=on_segment,
-                ),
-            )
+                now = time.time()
+                near_end = info.duration and (info.duration - segment.end) < 0.5
+                if now - last_update < PROGRESS_UPDATE_INTERVAL_SECONDS and not near_end:
+                    return
+                last_update = now
+
+                fraction = (
+                    max(0.0, min(1.0, segment.end / info.duration)) if info.duration else 0.0
+                )
+                transcription_elapsed = now - transcription_start
+                rtf = segment.end / transcription_elapsed if transcription_elapsed > 0 else None
+                remaining_audio = max(0.0, (info.duration or 0.0) - segment.end)
+                eta = remaining_audio / rtf if rtf and rtf > 0 else None
+
+                progress.overall_percent = TRANSCRIPTION_START_PERCENT + fraction * (
+                    TRANSCRIPTION_END_PERCENT - TRANSCRIPTION_START_PERCENT
+                )
+                progress.live_transcript = "\n".join(live_lines)
+                progress.speed_rtf = rtf
+                progress.eta_seconds = eta
+                progress.elapsed_seconds = now - start_time
+
+                asyncio.run_coroutine_threadsafe(
+                    db.update_job(job_id, progress=progress), loop
+                )
+
+            def should_continue() -> bool:
+                nonlocal was_paused
+                if job_id in self._cancel_flags:
+                    return False
+
+                if job_id in self._pause_flags:
+                    was_paused = True
+                    asyncio.run_coroutine_threadsafe(
+                        db.update_job(job_id, status=JobStatus.PAUSED), loop
+                    ).result()
+                    while job_id in self._pause_flags:
+                        if job_id in self._cancel_flags:
+                            return False
+                        time.sleep(0.5)
+
+                if was_paused:
+                    was_paused = False
+                    asyncio.run_coroutine_threadsafe(
+                        db.update_job(job_id, status=JobStatus.RUNNING), loop
+                    ).result()
+
+                return True
+
+            try:
+                full_text, duration, proc_time = await loop.run_in_executor(
+                    None,
+                    lambda: self._transcription.transcribe_file(
+                        job.file_path,
+                        language=job.language,
+                        model_name=model_name,
+                        on_segment=on_segment,
+                        should_continue=should_continue,
+                    ),
+                )
+            except TranscriptionCancelled:
+                progress.live_transcript = "\n".join(live_lines)
+                progress.elapsed_seconds = time.time() - start_time
+                await db.update_job(job_id, status=JobStatus.CANCELLED, progress=progress)
+                await db.add_activity("Job cancelled", level="warn", job_id=job_id)
+                return
 
             progress.live_transcript = full_text
             progress.speed_rtf = duration / proc_time if proc_time > 0 else None
+            progress.eta_seconds = None
             progress.total_chunks = 1
             progress.current_chunk = 1
-            progress.overall_percent = 85.0
+            progress.overall_percent = TRANSCRIPTION_END_PERCENT
 
             await update_stage(PipelineStage.ALIGNMENT, 88.0, "Word alignment (Phase 3)")
             await update_stage(PipelineStage.MERGE, 92.0, "Merging transcript")
@@ -142,8 +221,9 @@ class JobManager:
                 f"Exporting {output_format.upper()}",
             )
 
+            export_dir = Path(app_settings.export_dir) if app_settings.export_dir else settings.exports_dir
             export_path = build_export_path(
-                settings.exports_dir, job_id, job.file_name, output_format
+                export_dir, job_id, job.file_name, output_format
             )
             export_transcript(full_text, export_path, output_format)
 
@@ -163,10 +243,9 @@ class JobManager:
                 job_id=job_id,
             )
 
-        except asyncio.CancelledError:
+        except JobCancelled:
             await db.update_job(job_id, status=JobStatus.CANCELLED)
             await db.add_activity("Job cancelled", level="warn", job_id=job_id)
-            raise
 
         except Exception as exc:
             await db.update_job(

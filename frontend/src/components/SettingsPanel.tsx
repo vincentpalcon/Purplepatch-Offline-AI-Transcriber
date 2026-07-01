@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   ArrowLeft,
   Cpu,
+  FolderOpen,
   HardDrive,
   MemoryStick,
   RefreshCw,
@@ -127,7 +128,10 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
         device: draft.device,
         compute_type: draft.compute_type,
         beam_size: draft.beam_size,
-        vad_filter: draft.vad_filter
+        vad_filter: draft.vad_filter,
+        export_dir: draft.export_dir,
+        vocabulary: draft.vocabulary,
+        fast_batched: draft.fast_batched
       })
       setSettings(updated)
       setDraft(updated)
@@ -155,6 +159,11 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
 
   const updateDraft = (patch: Partial<AppSettings>) => {
     setDraft((prev) => (prev ? { ...prev, ...patch } : prev))
+  }
+
+  const handleChooseExportDir = async () => {
+    const dir = await window.electronAPI.openDirectoryDialog()
+    if (dir) updateDraft({ export_dir: dir })
   }
 
   const tabs: { id: SettingsTab; label: string }[] = [
@@ -276,6 +285,32 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
                   </div>
                 </Section>
 
+                <Section
+                  title="Output Location"
+                  description="Where transcript exports are saved. Defaults to the app's data folder."
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1 truncate rounded-lg border border-surface-border bg-surface-overlay px-3 py-2 text-sm text-slate-300">
+                      {draft.export_dir ?? 'Default (app data folder)'}
+                    </div>
+                    <button
+                      onClick={handleChooseExportDir}
+                      className="flex shrink-0 items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-slate-300 hover:bg-surface-overlay"
+                    >
+                      <FolderOpen className="h-4 w-4" />
+                      Choose...
+                    </button>
+                    {draft.export_dir && (
+                      <button
+                        onClick={() => updateDraft({ export_dir: null })}
+                        className="shrink-0 rounded-lg border border-surface-border px-3 py-2 text-sm text-slate-400 hover:bg-surface-overlay"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                </Section>
+
                 <Section title="Language" description="Leave on auto-detect or force a specific language.">
                   <select
                     value={draft.language ?? ''}
@@ -338,7 +373,36 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
                         Skip silent sections (recommended)
                       </label>
                     </Field>
+                    <Field label="Fast batched transcription (experimental)">
+                      <label className="flex items-center gap-2 text-sm text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={draft.fast_batched}
+                          onChange={(e) => updateDraft({ fast_batched: e.target.checked })}
+                        />
+                        Up to 5x faster on CPU
+                      </label>
+                      <p className="mt-1 text-xs text-amber-400">
+                        Off by default: in testing this dropped ~1 in 4 sentences on continuous,
+                        low-pause speech (e.g. presentations, lectures) compared to zero errors
+                        without it. Only enable for content you can spot-check, or short/casual
+                        clips where a gap is low-stakes.
+                      </p>
+                    </Field>
                   </div>
+                </Section>
+
+                <Section
+                  title="Custom Vocabulary"
+                  description="Names, acronyms, or jargon likely to appear — helps the model get tricky pronunciation right."
+                >
+                  <textarea
+                    value={draft.vocabulary ?? ''}
+                    onChange={(e) => updateDraft({ vocabulary: e.target.value || null })}
+                    placeholder="e.g. Purplepatch, Salesforce, Accellor, CTranslate2, Whisper large-v3"
+                    rows={3}
+                    className="w-full resize-none rounded-lg border border-surface-border bg-surface-overlay px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600"
+                  />
                 </Section>
               </>
             )}

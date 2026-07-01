@@ -75,6 +75,9 @@ export interface AppSettings {
   beam_size: number
   vad_filter: boolean
   onboarding_complete: boolean
+  export_dir: string | null
+  vocabulary: string | null
+  fast_batched: boolean
 }
 
 export interface UpdateSettingsRequest {
@@ -86,6 +89,9 @@ export interface UpdateSettingsRequest {
   beam_size?: number
   vad_filter?: boolean
   onboarding_complete?: boolean
+  export_dir?: string | null
+  vocabulary?: string | null
+  fast_batched?: boolean
 }
 
 export interface ModelInfo {

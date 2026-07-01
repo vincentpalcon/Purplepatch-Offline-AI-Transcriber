@@ -99,6 +99,12 @@ class AppSettings(BaseModel):
     beam_size: int = Field(default=5, ge=1, le=10)
     vad_filter: bool = True
     onboarding_complete: bool = False
+    export_dir: str | None = None
+    vocabulary: str | None = None
+    # Default OFF: measured to silently drop ~27% of segments on continuous,
+    # low-pause speech (batched VAD-chunk boundaries can lose content that
+    # sequential decoding preserves). Faster, but not safe as a default.
+    fast_batched: bool = False
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -110,6 +116,9 @@ class UpdateSettingsRequest(BaseModel):
     beam_size: int | None = Field(default=None, ge=1, le=10)
     vad_filter: bool | None = None
     onboarding_complete: bool | None = None
+    export_dir: str | None = None
+    vocabulary: str | None = None
+    fast_batched: bool | None = None
 
 
 class ModelInfo(BaseModel):

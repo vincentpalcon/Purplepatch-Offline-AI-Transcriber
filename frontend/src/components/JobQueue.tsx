@@ -4,6 +4,7 @@ import {
   Pause,
   Play,
   RefreshCw,
+  StopCircle,
   Trash2,
   CheckCircle2,
   AlertCircle,
@@ -20,6 +21,8 @@ const STATUS_STYLES: Record<string, string> = {
   failed: 'bg-status-failed/20 text-status-failed',
   cancelled: 'bg-slate-600/20 text-slate-400'
 }
+
+const FINISHED_STATUSES = ['completed', 'cancelled', 'failed']
 
 function StatusIcon({ status }: { status: string }) {
   switch (status) {
@@ -42,6 +45,7 @@ interface JobQueueProps {
   onResume: (id: string) => void
   onCancel: (id: string) => void
   onRetry: (id: string) => void
+  onRemove: (id: string) => void
 }
 
 export function JobQueue({
@@ -51,7 +55,8 @@ export function JobQueue({
   onPause,
   onResume,
   onCancel,
-  onRetry
+  onRetry,
+  onRemove
 }: JobQueueProps) {
   if (jobs.length === 0) {
     return (
@@ -132,14 +137,26 @@ export function JobQueue({
                   <RefreshCw className="h-3.5 w-3.5" />
                 </button>
               )}
-              {!['completed', 'cancelled'].includes(job.status) && (
+              {!FINISHED_STATUSES.includes(job.status) && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
                     onCancel(job.id)
                   }}
                   className="rounded p-1 text-slate-400 hover:bg-status-failed/20 hover:text-status-failed"
-                  title="Cancel"
+                  title="Stop"
+                >
+                  <StopCircle className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {FINISHED_STATUSES.includes(job.status) && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onRemove(job.id)
+                  }}
+                  className="rounded p-1 text-slate-400 hover:bg-status-failed/20 hover:text-status-failed"
+                  title="Remove from queue"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>

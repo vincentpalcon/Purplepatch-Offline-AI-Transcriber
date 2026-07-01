@@ -124,14 +124,14 @@ Video files are processed by extracting the audio track automatically (the app h
 
 ## Output Files
 
-Transcripts are saved as plain text (`.txt`) in the `exports/` folder:
+Transcripts are saved as plain text (`.txt`) in the app's `exports/` folder by default:
 
 ```
 exports/
 └── my-recording_a1b2c3d4.txt
 ```
 
-The filename includes the original name plus a short job ID.
+The filename includes the original name plus a short job ID. To save exports somewhere else (e.g. a Dropbox folder or a project directory), set a custom folder in **Settings → Output Location** — it's validated for write access when you save, and applies to every job going forward.
 
 **Example output:**
 ```
@@ -146,14 +146,16 @@ Thank you all for joining.
 
 ## Job Controls
 
-Hover over a job in the queue to reveal action buttons:
+Pause, Resume, Retry, and Stop buttons appear both next to the file name in the main panel for the selected job, and on hover over any job in the sidebar queue:
 
 | Button | When available | What it does |
 |--------|----------------|--------------|
-| **Pause** | Job is running | Pauses transcription |
-| **Resume** | Job is paused | Continues from where it stopped |
+| **Pause** | Job is running | Pauses transcription — takes effect within a second or two, not just between pipeline stages |
+| **Resume** | Job is paused | Continues from where it paused |
 | **Retry** | Job failed | Re-queues the job from the beginning |
-| **Cancel** | Job is queued, running, or paused | Stops the job permanently |
+| **Stop / Cancel** | Job is queued, running, or paused | Stops the job promptly (checked between transcription segments, so it doesn't wait for the whole file to finish) and frees the queue for the next job |
+
+Progress, ETA, and speed (RTF) update continuously throughout transcription — not just at pipeline-stage boundaries — so a job sitting at, say, 45% with a real ETA is actively working, not stuck. Large files with the `large-v3` model on CPU-only machines (e.g. Apple Silicon Macs — see [Tips & Performance](#tips--performance)) can legitimately take a while; watch the **Speed (RTF)** stat to gauge real progress.
 
 You can queue multiple files — they process one at a time in order.
 
@@ -167,8 +169,9 @@ You can queue multiple files — they process one at a time in order.
 - Close other heavy apps to free CPU/RAM.
 - Shorter files finish faster; long files take proportionally longer.
 - GPU acceleration is used automatically when an NVIDIA CUDA GPU is available. **Apple Silicon Macs always run on CPU** — the underlying engine (CTranslate2) has no Metal/Apple Neural Engine backend, so `device: auto` resolves to CPU on Mac regardless of chip. This is expected, not a bug; for large files on Mac, consider a smaller model (`small`/`medium`) if `large-v3` feels slow.
+- **Fast batched transcription** (Settings → Processing) can be up to ~5x faster on CPU by processing audio in parallel batches. It's **off by default and marked experimental**: controlled testing showed it silently dropped roughly 1 in 4 sentences on continuous, low-pause speech (presentations, lectures) versus zero errors with it off — the speed comes from the same VAD-chunk batching that can lose content at chunk boundaries. Only turn it on for content you can spot-check afterward.
 
-**Accuracy vs speed** — Phase 1 uses the `base` model (fast, good for clear speech). Larger models like `large-v3` will be configurable in a future release for higher accuracy.
+**Accuracy vs speed** — Larger models (`large-v3`) are more accurate but slower than smaller ones (`base`, `small`, `medium`); pick a model in Settings → Models. For difficult audio — accents, jargon, names — add them to **Settings → Custom Vocabulary** as a comma-separated hint; Whisper uses it as context to bias toward the correct spelling instead of guessing phonetically.
 
 **Large files** — The app is designed to handle very large files (100 GB+) via streaming in future phases. Phase 1 processes the full file through Whisper directly.
 

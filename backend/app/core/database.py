@@ -124,6 +124,32 @@ class Database:
             row = await cursor.fetchone()
         return self._row_to_job(row) if row else None
 
+    async def delete_job(self, job_id: str) -> None:
+        async with self.session() as db:
+            await db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+            await db.execute("DELETE FROM activity_log WHERE job_id = ?", (job_id,))
+            await db.commit()
+
+    async def delete_jobs_by_status(self, statuses: list[JobStatus]) -> list[str]:
+        placeholders = ",".join("?" for _ in statuses)
+        values = [s.value for s in statuses]
+        async with self.session() as db:
+            cursor = await db.execute(
+                f"SELECT id FROM jobs WHERE status IN ({placeholders})", values
+            )
+            rows = await cursor.fetchall()
+            ids = [row["id"] for row in rows]
+            if ids:
+                id_placeholders = ",".join("?" for _ in ids)
+                await db.execute(
+                    f"DELETE FROM jobs WHERE id IN ({id_placeholders})", ids
+                )
+                await db.execute(
+                    f"DELETE FROM activity_log WHERE job_id IN ({id_placeholders})", ids
+                )
+                await db.commit()
+        return ids
+
     async def update_job(
         self,
         job_id: str,

@@ -83,6 +83,33 @@ async def resume_job(job_id: str) -> TranscriptionJob:
     return job  # type: ignore[return-value]
 
 
+_CLEARABLE_STATUSES = (JobStatus.COMPLETED, JobStatus.CANCELLED, JobStatus.FAILED)
+
+
+@router.delete("/jobs/{job_id}", status_code=204)
+async def delete_job(job_id: str) -> None:
+    job = await db.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status not in _CLEARABLE_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail="Only completed, cancelled, or failed jobs can be removed. Cancel it first.",
+        )
+
+    await db.delete_job(job_id)
+
+
+@router.post("/jobs/clear-finished")
+async def clear_finished_jobs() -> dict[str, list[str]]:
+    deleted_ids = await db.delete_jobs_by_status(list(_CLEARABLE_STATUSES))
+    if deleted_ids:
+        await db.add_activity(
+            f"Cleared {len(deleted_ids)} finished job(s) from the queue", level="info"
+        )
+    return {"deleted": deleted_ids}
+
+
 @router.post("/jobs/{job_id}/cancel", response_model=TranscriptionJob)
 async def cancel_job(job_id: str) -> TranscriptionJob:
     job = await db.get_job(job_id)

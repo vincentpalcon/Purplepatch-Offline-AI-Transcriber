@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
-import { FolderOpen, Mic, Plus, Settings, Wifi, WifiOff } from 'lucide-react'
+import {
+  FolderOpen,
+  Mic,
+  Pause,
+  Play,
+  Plus,
+  RefreshCw,
+  Settings,
+  StopCircle,
+  Trash2,
+  Wifi,
+  WifiOff
+} from 'lucide-react'
 import { api } from '@/lib/api'
 import { ActivityLog } from '@/components/ActivityLog'
 import { JobQueue } from '@/components/JobQueue'
@@ -24,10 +36,15 @@ const DEFAULT_SETTINGS: AppSettings = {
   compute_type: 'int8',
   beam_size: 5,
   vad_filter: true,
-  onboarding_complete: false
+  onboarding_complete: false,
+  export_dir: null,
+  vocabulary: null,
+  fast_batched: false
 }
 
 type AppView = 'main' | 'settings'
+
+const FINISHED_STATUSES = ['completed', 'cancelled', 'failed']
 
 export default function App() {
   const [view, setView] = useState<AppView>('main')
@@ -113,7 +130,10 @@ export default function App() {
     await addJobsFromPaths([filePath])
   }
 
-  const handleJobAction = async (action: 'pause' | 'resume' | 'cancel' | 'retry', id: string) => {
+  const handleJobAction = async (
+    action: 'pause' | 'resume' | 'cancel' | 'retry' | 'remove',
+    id: string
+  ) => {
     try {
       switch (action) {
         case 'pause':
@@ -128,10 +148,24 @@ export default function App() {
         case 'retry':
           await api.retryJob(id)
           break
+        case 'remove':
+          await api.deleteJob(id)
+          if (selectedJobId === id) setSelectedJobId(null)
+          break
       }
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed')
+    }
+  }
+
+  const handleClearFinished = async () => {
+    try {
+      const { deleted } = await api.clearFinishedJobs()
+      if (selectedJobId && deleted.includes(selectedJobId)) setSelectedJobId(null)
+      await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear finished jobs')
     }
   }
 
@@ -230,9 +264,21 @@ export default function App() {
       >
       <div className="flex h-full min-h-0">
         <aside className="w-80 shrink-0 overflow-y-auto border-r border-surface-border bg-surface p-4">
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
-            Job Queue
-          </h2>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              Job Queue
+            </h2>
+            {jobs.some((j) => FINISHED_STATUSES.includes(j.status)) && (
+              <button
+                onClick={handleClearFinished}
+                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-500 hover:bg-surface-overlay hover:text-slate-300"
+                title="Remove all completed, cancelled, and failed jobs"
+              >
+                <Trash2 className="h-3 w-3" />
+                Clear finished
+              </button>
+            )}
+          </div>
           <JobQueue
             jobs={jobs}
             selectedJobId={selectedJob?.id ?? null}
@@ -241,26 +287,76 @@ export default function App() {
             onResume={(id) => handleJobAction('resume', id)}
             onCancel={(id) => handleJobAction('cancel', id)}
             onRetry={(id) => handleJobAction('retry', id)}
+            onRemove={(id) => handleJobAction('remove', id)}
           />
         </aside>
 
         <main className="min-w-0 flex-1 overflow-y-auto p-6">
           {selectedJob ? (
             <div className="mx-auto max-w-5xl space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-100">{selectedJob.file_name}</h2>
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <h2 className="truncate text-lg font-semibold text-slate-100">{selectedJob.file_name}</h2>
                   <p className="mt-0.5 truncate text-xs text-slate-500">{selectedJob.file_path}</p>
                 </div>
-                {selectedJob.export_path && (
-                  <button
-                    onClick={handleOpenExport}
-                    className="flex items-center gap-2 rounded-lg border border-surface-border bg-surface-raised px-3 py-2 text-sm text-slate-300 hover:bg-surface-overlay"
-                  >
-                    <FolderOpen className="h-4 w-4" />
-                    Open Export
-                  </button>
-                )}
+                <div className="flex shrink-0 items-center gap-2">
+                  {selectedJob.status === 'running' && (
+                    <button
+                      onClick={() => handleJobAction('pause', selectedJob.id)}
+                      className="flex items-center gap-2 rounded-lg border border-surface-border bg-surface-raised px-3 py-2 text-sm text-slate-300 hover:bg-surface-overlay"
+                    >
+                      <Pause className="h-4 w-4" />
+                      Pause
+                    </button>
+                  )}
+                  {selectedJob.status === 'paused' && (
+                    <button
+                      onClick={() => handleJobAction('resume', selectedJob.id)}
+                      className="flex items-center gap-2 rounded-lg border border-surface-border bg-surface-raised px-3 py-2 text-sm text-slate-300 hover:bg-surface-overlay"
+                    >
+                      <Play className="h-4 w-4" />
+                      Resume
+                    </button>
+                  )}
+                  {selectedJob.status === 'failed' && (
+                    <button
+                      onClick={() => handleJobAction('retry', selectedJob.id)}
+                      className="flex items-center gap-2 rounded-lg border border-surface-border bg-surface-raised px-3 py-2 text-sm text-slate-300 hover:bg-surface-overlay"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      Retry
+                    </button>
+                  )}
+                  {!FINISHED_STATUSES.includes(selectedJob.status) && (
+                    <button
+                      onClick={() => handleJobAction('cancel', selectedJob.id)}
+                      className="flex items-center gap-2 rounded-lg border border-status-failed/40 bg-status-failed/10 px-3 py-2 text-sm text-status-failed hover:bg-status-failed/20"
+                      title="Stop transcription permanently"
+                    >
+                      <StopCircle className="h-4 w-4" />
+                      Stop
+                    </button>
+                  )}
+                  {FINISHED_STATUSES.includes(selectedJob.status) && (
+                    <button
+                      onClick={() => handleJobAction('remove', selectedJob.id)}
+                      className="flex items-center gap-2 rounded-lg border border-surface-border bg-surface-raised px-3 py-2 text-sm text-slate-300 hover:bg-surface-overlay"
+                      title="Remove this job from the queue"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Remove
+                    </button>
+                  )}
+                  {selectedJob.export_path && (
+                    <button
+                      onClick={handleOpenExport}
+                      className="flex items-center gap-2 rounded-lg border border-surface-border bg-surface-raised px-3 py-2 text-sm text-slate-300 hover:bg-surface-overlay"
+                    >
+                      <FolderOpen className="h-4 w-4" />
+                      Open Export
+                    </button>
+                  )}
+                </div>
               </div>
 
               <PipelineStatus
