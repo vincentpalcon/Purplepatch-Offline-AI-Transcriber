@@ -1,0 +1,91 @@
+# Dependencies
+node_modules/
+backend/.venv/
+backend/venv/
+
+# Build output
+out/
+release/
+dist/
+dist-electron/
+*.tsbuildinfo
+
+# Vite / Electron tooling
+.vite/
+*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Runtime data (keep folder structure only)
+cache/*
+!cache/.gitkeep
+database/*
+!database/.gitkeep
+exports/*
+!exports/.gitkeep
+logs/*
+!logs/.gitkeep
+temp/*
+!temp/.gitkeep
+
+# SQLite
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# App settings (stored locally per machine)
+settings.json
+
+# Whisper / Hugging Face models (large downloads)
+models/**
+!models/.gitkeep
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE / editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# Packaged installers (also under release/)
+*.dmg
+*.exe
+*.msi

@@ -1,0 +1,145 @@
+import time
+from pathlib import Path
+from threading import Lock
+from typing import TYPE_CHECKING
+
+from app.core.config import settings
+from app.services.model_manager import model_manager
+
+if TYPE_CHECKING:
+    from faster_whisper import WhisperModel
+
+
+class TranscriptionService:
+    _instance: "TranscriptionService | None" = None
+    _lock = Lock()
+
+    def __init__(self) -> None:
+        self._model: WhisperModel | None = None
+        self._loaded_model_name: str | None = None
+        self._resolved_device: str | None = None
+
+    @classmethod
+    def get_instance(cls) -> "TranscriptionService":
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
+
+    def _resolve_device(self, device_pref: str = "auto") -> str:
+        if device_pref != "auto":
+            self._resolved_device = device_pref
+            return device_pref
+        try:
+            import ctranslate2
+
+            if ctranslate2.get_cuda_device_count() > 0:
+                self._resolved_device = "cuda"
+                return "cuda"
+        except Exception:
+            pass
+        self._resolved_device = "cpu"
+        return "cpu"
+
+    def get_resolved_device(self) -> str:
+        if self._resolved_device:
+            return self._resolved_device
+        from app.services.settings_store import load_settings
+
+        return self._resolve_device(load_settings().device)
+
+    def get_gpu_name(self) -> str | None:
+        try:
+            import ctranslate2
+
+            if ctranslate2.get_cuda_device_count() > 0:
+                return "CUDA GPU"
+        except Exception:
+            pass
+        return None
+
+    def get_loaded_model_name(self) -> str | None:
+        return self._loaded_model_name
+
+    def is_model_loaded(self) -> bool:
+        return self._model is not None
+
+    def unload_model(self) -> None:
+        self._model = None
+        self._loaded_model_name = None
+
+    def load_model(self, model_name: str | None = None) -> "WhisperModel":
+        from faster_whisper import WhisperModel
+        from app.services.settings_store import load_settings
+
+        app_settings = load_settings()
+        name = model_name or app_settings.model
+        device = self._resolve_device(app_settings.device)
+        compute_type = (
+            app_settings.compute_type if device == "cpu" else "float16"
+        )
+
+        if (
+            self._model is not None
+            and self._loaded_model_name == name
+        ):
+            return self._model
+
+        self.unload_model()
+
+        local_path = model_manager.get_model_path(name)
+        if local_path:
+            self._model = WhisperModel(
+                str(local_path),
+                device=device,
+                compute_type=compute_type,
+            )
+        else:
+            self._model = WhisperModel(
+                name,
+                device=device,
+                compute_type=compute_type,
+                download_root=str(settings.models_dir),
+            )
+
+        self._loaded_model_name = name
+        return self._model
+
+    def transcribe_file(
+        self,
+        file_path: str,
+        language: str | None = None,
+        model_name: str | None = None,
+        on_segment=None,
+    ) -> tuple[str, float, float]:
+        """Returns (full_text, duration_seconds, processing_seconds)."""
+        model = self.load_model(model_name)
+        path = Path(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Media file not found: {file_path}")
+
+        from app.services.settings_store import load_settings
+
+        app_settings = load_settings()
+
+        start = time.time()
+        segments, info = model.transcribe(
+            str(path),
+            language=language or app_settings.language,
+            vad_filter=app_settings.vad_filter,
+            beam_size=app_settings.beam_size,
+        )
+
+        lines: list[str] = []
+        for segment in segments:
+            text = segment.text.strip()
+            if text:
+                lines.append(text)
+            if on_segment:
+                on_segment(segment)
+
+        duration = float(info.duration)
+        elapsed = time.time() - start
+        full_text = "\n".join(lines)
+        return full_text, duration, elapsed

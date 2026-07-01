@@ -1,0 +1,1 @@
+"""Purplepatch Offline AI Transcriber backend."""
