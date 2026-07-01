@@ -1,6 +1,6 @@
 {
   "name": "purplepatch-offline-ai-transcriber",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Purplepatch Offline AI Transcriber — professional offline transcription desktop app for macOS and Windows",
   "main": "out/main/index.js",
   "author": "Purplepatch",
