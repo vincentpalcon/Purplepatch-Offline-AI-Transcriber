@@ -84,6 +84,27 @@ export interface AppSettings {
   huggingface_token: string | null
   diarization_min_speakers: number | null
   diarization_max_speakers: number | null
+  auto_check_updates: boolean
+  auto_download_updates: boolean
+}
+
+export interface UpdateStatusPayload {
+  state:
+    | 'idle'
+    | 'checking'
+    | 'available'
+    | 'not-available'
+    | 'downloading'
+    | 'downloaded'
+    | 'error'
+    | 'dev'
+  currentVersion: string
+  latestVersion: string | null
+  progressPercent: number
+  transferredMb: number | null
+  totalMb: number | null
+  message: string
+  error: string | null
 }
 
 export interface DiarizationDownloadStatus {
@@ -123,6 +144,8 @@ export interface UpdateSettingsRequest {
   huggingface_token?: string | null
   diarization_min_speakers?: number | null
   diarization_max_speakers?: number | null
+  auto_check_updates?: boolean
+  auto_download_updates?: boolean
 }
 
 export interface ModelInfo {

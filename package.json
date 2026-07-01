@@ -16,11 +16,14 @@
     "dist": "npm run dist:mac && npm run dist:win",
     "dist:mac": "npm run bundle:python:mac && npm run build && electron-builder --mac --arm64",
     "dist:win": "npm run bundle:python:win && npm run build && electron-builder --win --x64",
+    "dist:publish:mac": "npm run bundle:python:mac && npm run build && electron-builder --mac --arm64 --publish always",
+    "dist:publish:win": "npm run bundle:python:win && npm run build && electron-builder --win --x64 --publish always",
     "backend:setup": "cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt",
     "backend:dev": "cd backend && . .venv/bin/activate && uvicorn app.main:app --reload --host 127.0.0.1 --port 8742"
   },
   "dependencies": {
     "clsx": "^2.1.1",
+    "electron-updater": "^6.8.9",
     "lucide-react": "^0.468.0"
   },
   "devDependencies": {
@@ -55,30 +58,60 @@
       {
         "from": "backend",
         "to": "backend",
-        "filter": ["**/*", "!.venv/**", "!**/__pycache__/**"]
+        "filter": [
+          "**/*",
+          "!.venv/**",
+          "!**/__pycache__/**"
+        ]
       }
     ],
     "mac": {
       "icon": "build/icon.icns",
       "category": "public.app-category.productivity",
       "target": [
-        { "target": "dmg", "arch": ["arm64"] },
-        { "target": "zip", "arch": ["arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
       ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "extraResources": [
-        { "from": "python-runtime/mac/python", "to": "python" }
+        {
+          "from": "python-runtime/mac/python",
+          "to": "python"
+        }
       ]
     },
     "win": {
       "icon": "build/icon.ico",
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "extraResources": [
-        { "from": "python-runtime/win/python", "to": "python" }
+        {
+          "from": "python-runtime/win/python",
+          "to": "python"
+        }
       ]
     },
     "nsis": {
@@ -89,6 +122,12 @@
     },
     "portable": {
       "artifactName": "${productName}-${version}-portable.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "vincentpalcon",
+      "repo": "Purplepatch-Offline-AI-Transcriber",
+      "releaseType": "release"
     }
   }
 }

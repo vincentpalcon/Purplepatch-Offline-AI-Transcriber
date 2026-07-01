@@ -118,6 +118,8 @@ class AppSettings(BaseModel):
     huggingface_token: str | None = None
     diarization_min_speakers: int | None = Field(default=None, ge=1, le=20)
     diarization_max_speakers: int | None = Field(default=None, ge=1, le=20)
+    auto_check_updates: bool = True
+    auto_download_updates: bool = True
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -136,6 +138,8 @@ class UpdateSettingsRequest(BaseModel):
     huggingface_token: str | None = None
     diarization_min_speakers: int | None = Field(default=None, ge=1, le=20)
     diarization_max_speakers: int | None = Field(default=None, ge=1, le=20)
+    auto_check_updates: bool | None = None
+    auto_download_updates: bool | None = None
 
 
 class DiarizationDownloadStatus(BaseModel):

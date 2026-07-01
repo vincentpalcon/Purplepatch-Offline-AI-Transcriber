@@ -12,6 +12,7 @@ import {
 import clsx from 'clsx'
 import { api } from '@/lib/api'
 import { formatMb, formatPercent } from '@/lib/format'
+import { AppUpdatePanel } from '@/components/AppUpdatePanel'
 import { DiarizationModelCard } from '@/components/DiarizationModelCard'
 import { ModelSelector } from '@/components/ModelSelector'
 import type {
@@ -171,10 +172,13 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
         enable_speaker_labels: draft.enable_speaker_labels,
         huggingface_token: draft.huggingface_token,
         diarization_min_speakers: draft.diarization_min_speakers,
-        diarization_max_speakers: draft.diarization_max_speakers
+        diarization_max_speakers: draft.diarization_max_speakers,
+        auto_check_updates: draft.auto_check_updates,
+        auto_download_updates: draft.auto_download_updates
       })
       setSettings(updated)
       setDraft(updated)
+      await window.electronAPI.configureUpdater()
       const [m, info, diarization] = await Promise.all([
         api.getModels(),
         api.getSystemInfo(),
@@ -609,6 +613,26 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
                     Refresh
                   </button>
                 </div>
+
+                <Section
+                  title="App Updates"
+                  description="Manual: click Check for updates. Automatic: enable the toggles below to check and download in the background. A restart prompt appears when an update is ready."
+                >
+                  <AppUpdatePanel
+                    autoCheckUpdates={draft.auto_check_updates ?? true}
+                    autoDownloadUpdates={draft.auto_download_updates ?? true}
+                    onAutoCheckChange={(enabled) =>
+                      updateDraft({ auto_check_updates: enabled })
+                    }
+                    onAutoDownloadChange={(enabled) =>
+                      updateDraft({ auto_download_updates: enabled })
+                    }
+                  />
+                  <p className="mt-3 text-xs text-slate-500">
+                    Save settings to apply auto-update preferences. Updates require a published
+                    GitHub Release with built installers.
+                  </p>
+                </Section>
 
                 <Section title="Application">
                   <InfoGrid

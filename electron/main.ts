@@ -1,8 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from 'electron'
 import { join } from 'path'
 import { PythonManager } from './python-manager'
+import { AppUpdater } from './updater'
 
 const pythonManager = new PythonManager()
+const appUpdater = new AppUpdater()
 let mainWindow: BrowserWindow | null = null
 
 const isDev = !app.isPackaged
@@ -27,6 +29,8 @@ function createWindow(): void {
     }
   })
 
+  appUpdater.setWindow(mainWindow)
+
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
   })
@@ -40,6 +44,7 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+    appUpdater.setWindow(null)
   })
 }
 
@@ -80,6 +85,15 @@ function registerIpcHandlers(): void {
   ipcMain.handle('shell:showItemInFolder', async (_event, filePath: string) => {
     shell.showItemInFolder(filePath)
   })
+
+  ipcMain.handle('update:getStatus', () => appUpdater.getStatus())
+  ipcMain.handle('update:check', () => appUpdater.checkForUpdates(true))
+  ipcMain.handle('update:download', () => appUpdater.downloadUpdate())
+  ipcMain.handle('update:install', () => appUpdater.installUpdate())
+  ipcMain.handle('update:configure', () => {
+    appUpdater.configureFromSettings()
+    return appUpdater.getStatus()
+  })
 }
 
 app.whenReady().then(async () => {
@@ -91,6 +105,7 @@ app.whenReady().then(async () => {
     await pythonManager.start()
     registerIpcHandlers()
     createWindow()
+    appUpdater.scheduleAutoCheck()
   } catch (error) {
     console.error('Failed to start application:', error)
     dialog.showErrorBox(

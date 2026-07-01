@@ -22,8 +22,15 @@ import { SettingsPanel } from '@/components/SettingsPanel'
 import { DropZone } from '@/components/DropZone'
 import { SystemMonitor } from '@/components/SystemMonitor'
 import { TranscriptPreview } from '@/components/TranscriptPreview'
+import { UpdateReadyModal } from '@/components/UpdateReadyModal'
 import { MEDIA_EXTENSIONS_LABEL } from '@/lib/media'
-import type { ActivityLogEntry, AppSettings, SystemStats, TranscriptionJob } from '@/types'
+import type {
+  ActivityLogEntry,
+  AppSettings,
+  SystemStats,
+  TranscriptionJob,
+  UpdateStatusPayload
+} from '@/types'
 
 const POLL_INTERVAL_MS = 1500
 const isMac = window.electronAPI.platform === 'darwin'
@@ -43,7 +50,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   enable_speaker_labels: true,
   huggingface_token: null,
   diarization_min_speakers: null,
-  diarization_max_speakers: null
+  diarization_max_speakers: null,
+  auto_check_updates: true,
+  auto_download_updates: true
 }
 
 type AppView = 'main' | 'settings'
@@ -61,8 +70,22 @@ export default function App() {
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null)
   const [isAdding, setIsAdding] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatusPayload | null>(null)
+  const [updateModalDismissed, setUpdateModalDismissed] = useState(false)
 
   const selectedJob = jobs.find((j) => j.id === selectedJobId) ?? jobs[0] ?? null
+  const showUpdateModal =
+    updateStatus?.state === 'downloaded' && !updateModalDismissed
+
+  useEffect(() => {
+    void window.electronAPI.getUpdateStatus().then(setUpdateStatus).catch(() => undefined)
+    return window.electronAPI.onUpdateStatusChanged((next) => {
+      setUpdateStatus(next)
+      if (next.state === 'downloaded') {
+        setUpdateModalDismissed(false)
+      }
+    })
+  }, [])
 
   const refresh = useCallback(async () => {
     try {
@@ -184,15 +207,21 @@ export default function App() {
     await refresh()
   }
 
-  if (view === 'settings') {
-    return (
-      <div className="flex h-screen flex-col bg-surface">
-        <SettingsPanel onBack={() => setView('main')} />
-      </div>
-    )
-  }
-
   return (
+    <>
+      <UpdateReadyModal
+        open={showUpdateModal}
+        currentVersion={updateStatus?.currentVersion ?? '0.0.0'}
+        latestVersion={updateStatus?.latestVersion ?? null}
+        onRestart={() => window.electronAPI.installUpdate()}
+        onLater={() => setUpdateModalDismissed(true)}
+      />
+
+      {view === 'settings' ? (
+        <div className="flex h-screen flex-col bg-surface">
+          <SettingsPanel onBack={() => setView('main')} />
+        </div>
+      ) : (
     <div className="flex h-screen flex-col">
       {showOnboarding && connected && (
         <OnboardingModal onComplete={handleOnboardingComplete} />
@@ -419,5 +448,7 @@ export default function App() {
       {connected && <SystemMonitor stats={systemStats} />}
       </div>
     </div>
+      )}
+    </>
   )
 }
