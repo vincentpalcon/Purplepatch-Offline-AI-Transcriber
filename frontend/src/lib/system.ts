@@ -10,7 +10,8 @@ export function normalizeSystemStats(raw: Partial<SystemStats>): SystemStats {
     disk_free_mb: raw.disk_free_mb ?? 0,
     disk_total_mb: raw.disk_total_mb ?? 0,
     gpu_percent: raw.gpu_percent ?? null,
-    gpu_name: raw.gpu_name ?? null
+    gpu_name: raw.gpu_name ?? null,
+    device: raw.device ?? 'cpu'
   }
 }
 

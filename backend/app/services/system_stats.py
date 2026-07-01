@@ -3,6 +3,7 @@ import shutil
 import psutil
 
 from app.core.config import settings
+from app.services.transcription import TranscriptionService
 
 
 def _bytes_to_mb(value: int) -> float:
@@ -29,6 +30,8 @@ def get_system_stats() -> dict:
     disk_free_mb = _bytes_to_mb(disk.free)
     disk_used_percent = round((1 - disk.free / disk.total) * 100, 1) if disk.total else 0.0
 
+    device = TranscriptionService.get_instance().get_resolved_device()
+
     return {
         "cpu_percent": cpu,
         "ram_percent": memory.percent,
@@ -39,4 +42,5 @@ def get_system_stats() -> dict:
         "disk_total_mb": disk_total_mb,
         "gpu_percent": gpu_percent,
         "gpu_name": gpu_name,
+        "device": device,
     }

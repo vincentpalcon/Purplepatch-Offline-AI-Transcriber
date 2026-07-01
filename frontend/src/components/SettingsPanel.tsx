@@ -23,6 +23,11 @@ import type {
 type SettingsTab = 'general' | 'models' | 'system'
 const isMac = window.electronAPI.platform === 'darwin'
 
+function isDiskLow(freeMb: number, totalMb: number): boolean {
+  const usedPercent = totalMb > 0 ? (1 - freeMb / totalMb) * 100 : 0
+  return usedPercent >= 90 || freeMb < 10_240
+}
+
 interface SettingsPanelProps {
   onBack: () => void
 }
@@ -436,7 +441,16 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
                     <DiskRow label="Logs" value={systemInfo.disk.logs_mb} />
                     <DiskRow label="Temp" value={systemInfo.disk.temp_mb} />
                     <div className="mt-3 border-t border-surface-border pt-3 text-slate-400">
-                      <p>Free disk: {formatMb(systemInfo.disk.disk_free_mb)}</p>
+                      <p
+                        className={clsx(
+                          isDiskLow(systemInfo.disk.disk_free_mb, systemInfo.disk.disk_total_mb) &&
+                            'font-medium text-amber-400'
+                        )}
+                      >
+                        Free disk: {formatMb(systemInfo.disk.disk_free_mb)}
+                        {isDiskLow(systemInfo.disk.disk_free_mb, systemInfo.disk.disk_total_mb) &&
+                          ' — low disk space, free up storage before transcribing large files'}
+                      </p>
                       <p className="mt-1 truncate text-xs text-slate-500">
                         Data: {systemInfo.data_dir}
                       </p>

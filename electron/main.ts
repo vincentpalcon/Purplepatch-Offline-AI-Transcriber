@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from 'electron'
 import { join } from 'path'
 import { PythonManager } from './python-manager'
 
@@ -6,6 +6,7 @@ const pythonManager = new PythonManager()
 let mainWindow: BrowserWindow | null = null
 
 const isDev = !app.isPackaged
+const iconPath = join(__dirname, '../../build/icon.png')
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -14,6 +15,7 @@ function createWindow(): void {
     minWidth: 1024,
     minHeight: 700,
     show: false,
+    icon: isDev ? iconPath : undefined,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 18 } : undefined,
     backgroundColor: '#0f1117',
@@ -71,6 +73,10 @@ function registerIpcHandlers(): void {
 }
 
 app.whenReady().then(async () => {
+  if (isDev && process.platform === 'darwin') {
+    app.dock?.setIcon(nativeImage.createFromPath(iconPath))
+  }
+
   try {
     await pythonManager.start()
     registerIpcHandlers()

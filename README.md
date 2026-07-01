@@ -22,59 +22,18 @@ No internet required after setup. Your files never leave your computer.
 
 ## Installation
 
-### Requirements
+The app is **standalone** — the installer bundles its own transcription engine (a self-contained Python runtime with Whisper/CTranslate2 built in). There is nothing else to install: no Python, no FFmpeg, no Node.
 
-| Software | Version |
-|----------|---------|
-| Node.js | 20 or higher |
-| Python | 3.12 |
-| FFmpeg | Latest stable |
+**macOS:** open the `.dmg` and drag the app to Applications.
+**Windows:** run `Purplepatch Offline AI Transcriber Setup.exe`, or use the portable `.exe` if you'd rather not install anything.
 
-**Install FFmpeg**
+Launch the app and wait for the header to show **"Local engine online"** (green) — that's the bundled engine starting up, typically a couple of seconds.
 
-macOS:
-```bash
-brew install ffmpeg
-```
+> Builds are currently produced for **Apple Silicon (arm64) Macs** and **64-bit (x64) Windows**. Intel Macs aren't built yet — see [Building installers (standalone bundling)](#building-installers-standalone-bundling) if you need to add that target.
 
-Windows:
-```powershell
-winget install Gyan.FFmpeg
-```
+Whisper models are **not** included in the installer — pick and download one from **Settings → Models** the first time you use the app (or transcribing with an undownloaded model triggers the download automatically). This requires internet the first time; transcription itself is fully offline afterward.
 
-### Setup (first time only)
-
-**1. Install app dependencies**
-```bash
-npm install
-```
-
-**2. Set up the Python backend**
-
-macOS:
-```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cd ..
-```
-
-Windows (PowerShell):
-```powershell
-cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-cd ..
-```
-
-**3. Start the app**
-```bash
-npm run dev
-```
-
-The app window opens and the transcription engine starts automatically in the background.
+Building from source, or producing the installers yourself? See [For Developers](#for-developers).
 
 ---
 
@@ -82,11 +41,7 @@ The app window opens and the transcription engine starts automatically in the ba
 
 ### Step 1 — Launch the app
 
-Run from the project folder:
-
-```bash
-npm run dev
-```
+Open the installed app (or run `npm run dev` from source — see [For Developers](#for-developers)).
 
 Wait until the header shows **"Local engine online"** (green). If it says **"Local engine offline"**, see [Troubleshooting](#troubleshooting).
 
@@ -163,7 +118,7 @@ When a job shows **completed**:
 | Audio | `.mp3` `.wav` `.m4a` `.flac` `.ogg` |
 | Video | `.mp4` `.mkv` `.mov` `.avi` `.webm` |
 
-Video files are processed by extracting the audio track automatically (via FFmpeg).
+Video files are processed by extracting the audio track automatically (the app has FFmpeg's decoding libraries built in via PyAV — no separate FFmpeg install needed).
 
 ---
 
@@ -206,12 +161,12 @@ You can queue multiple files — they process one at a time in order.
 
 ## Tips & Performance
 
-**First run is slower** — On the first transcription, the app downloads the Whisper `base` model (~150 MB) into the `models/` folder. Later runs reuse the cached model.
+**First run is slower** — The first time you use a given model, the app downloads it from Hugging Face (the default `base` model is ~150 MB; larger models like `large-v3` are several GB). This needs internet once; later runs reuse the cached copy from Settings → Models. Downloads and cached models live in the app's data folder, not inside the installed app itself.
 
 **Faster transcription**
 - Close other heavy apps to free CPU/RAM.
 - Shorter files finish faster; long files take proportionally longer.
-- GPU acceleration is used automatically when available (NVIDIA CUDA or Apple Silicon).
+- GPU acceleration is used automatically when an NVIDIA CUDA GPU is available. **Apple Silicon Macs always run on CPU** — the underlying engine (CTranslate2) has no Metal/Apple Neural Engine backend, so `device: auto` resolves to CPU on Mac regardless of chip. This is expected, not a bug; for large files on Mac, consider a smaller model (`small`/`medium`) if `large-v3` feels slow.
 
 **Accuracy vs speed** — Phase 1 uses the `base` model (fast, good for clear speech). Larger models like `large-v3` will be configurable in a future release for higher accuracy.
 
@@ -223,9 +178,11 @@ You can queue multiple files — they process one at a time in order.
 
 ## Troubleshooting
 
-### "Local engine offline" in the header
+### "Local engine offline" in the header / "Startup Error" dialog on launch
 
-The local Python engine did not start. Fix:
+**If you installed the app (Setup.exe / .dmg):** the bundled engine failed to start. This shouldn't happen with an intact installer — try reinstalling. If it persists, check the app's logs (Settings → System Info shows the data folder path) for the underlying error.
+
+**If you're running from source** (`npm run dev`): the backend venv isn't set up yet. Fix:
 
 ```bash
 cd backend
@@ -236,13 +193,8 @@ cd ..
 npm run dev
 ```
 
-### "Startup Error" dialog on launch
-
-Run the backend setup steps in [Installation](#installation) if you have not already.
-
 ### Transcription fails immediately
 
-- Confirm **FFmpeg** is installed: `ffmpeg -version`
 - Confirm the file exists and is not corrupted.
 - Check the **Activity Log** for the exact error message.
 
@@ -274,24 +226,50 @@ npm run dev
 ### Project structure
 
 ```
-├── electron/     Electron main process
-├── frontend/     React UI
-├── backend/      FastAPI + faster-whisper
-├── models/       Cached Whisper models
-├── exports/      Transcript output
-├── database/     SQLite job store
-├── cache/        Processing cache
-├── logs/         Application logs
-└── temp/         Temporary files
+├── electron/       Electron main process
+├── frontend/       React UI
+├── backend/        FastAPI + faster-whisper (source)
+├── scripts/        Build tooling (bundle-python.mjs)
+├── python-runtime/ Bundled standalone Python runtimes (gitignored, build output)
+├── models/         Legacy — models now download into the app's data folder, not here
+├── exports/        Transcript output (dev mode)
+├── database/       SQLite job store (dev mode)
+├── cache/          Processing cache (dev mode)
+├── logs/           Application logs (dev mode)
+└── temp/           Temporary files (dev mode)
 ```
 
-### Build installers
+Running `npm run dev` and the installed app both use the OS's per-app data folder (`app.getPath('userData')`, e.g. `~/Library/Application Support/purplepatch-offline-ai-transcriber` on macOS) for models, database, exports, logs, cache — not the folders above. Those folders exist for historical/dev-convenience reasons.
+
+### Running from source
 
 ```bash
-npm run dist       # Current platform
-npm run dist:mac   # macOS (.dmg)
-npm run dist:win   # Windows (.exe)
+npm install
+cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && cd ..
+npm run dev
 ```
+
+(Windows: `python -m venv .venv` then `.\.venv\Scripts\Activate.ps1`.) FFmpeg is **not** required — `faster-whisper` decodes audio via PyAV, which ships its own statically-linked FFmpeg libraries.
+
+### Building installers (standalone bundling)
+
+```bash
+npm run dist:mac   # macOS (.dmg + .zip), arm64
+npm run dist:win   # Windows (Setup.exe + portable .exe), x64
+npm run dist       # both, sequentially
+```
+
+Each `dist:*` script first runs `scripts/bundle-python.mjs`, which:
+
+1. Downloads a self-contained CPython build ([python-build-standalone](https://github.com/astral-sh/python-build-standalone)) for the target OS/arch into `python-runtime/<mac|win>/python/`.
+2. Installs `backend/requirements.txt` into that runtime's own `site-packages` — for Windows this is a **cross-platform install from macOS** using `pip install --target --platform win_amd64 --python-version 3.12 --implementation cp --abi cp312 --only-binary=:all:`, since real binary wheels exist on PyPI for every dependency (ctranslate2, onnxruntime, av, etc). `uvicorn[standard]`'s marker-conditional extras (`uvloop` on Unix, `colorama` on Windows) are handled explicitly, since pip resolves markers against the *host* platform, not the `--platform` target.
+3. electron-builder then bundles that runtime via `extraResources` into `Resources/python` (mac) / `resources/python` (Windows) — `electron/python-manager.ts` spawns it directly, with no dependency on system Python, a dev venv, or FFmpeg.
+
+Models are deliberately **not** part of this bundle — they're always a user-triggered download via Settings → Models, kept small and independent of app updates.
+
+This adds ~300 MB of network/disk usage per platform (cached under `python-runtime/.cache/`, safe to delete). The macOS build is fully verified on this machine end-to-end (packaged `.app` launched standalone — bundled runtime, no venv/system Python — through a real transcription job). The Windows build is verified structurally only (correct `python.exe`/`.pyd` architecture, dependency resolution, and a successful NSIS/portable build via electron-builder's bundled Wine) — actually launching the resulting `.exe` needs to be confirmed on a real Windows machine or CI, since it can't be executed from macOS.
+
+Only Apple Silicon (mac) and x64 (Windows) targets are built today, matching the pinned `arch` in `package.json`'s `build.mac`/`build.win` config. Adding Intel Mac or ARM64 Windows support means adding the matching triple to `scripts/bundle-python.mjs` and an extra `arch` entry in the electron-builder config.
 
 ### API (localhost:8742)
 

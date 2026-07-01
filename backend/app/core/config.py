@@ -37,8 +37,7 @@ class Settings(BaseSettings):
 
     @property
     def models_dir(self) -> Path:
-        root = Path(__file__).resolve().parents[3]
-        return root / "models"
+        return self.data_dir / "models"
 
     @property
     def db_path(self) -> Path:

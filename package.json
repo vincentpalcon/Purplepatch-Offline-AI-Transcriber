@@ -9,10 +9,13 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "bundle:python:mac": "node scripts/bundle-python.mjs mac",
+    "bundle:python:win": "node scripts/bundle-python.mjs win",
+    "bundle:python": "node scripts/bundle-python.mjs all",
     "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder",
-    "dist:mac": "npm run build && electron-builder --mac",
-    "dist:win": "npm run build && electron-builder --win",
+    "dist": "npm run dist:mac && npm run dist:win",
+    "dist:mac": "npm run bundle:python:mac && npm run build && electron-builder --mac --arm64",
+    "dist:win": "npm run bundle:python:win && npm run build && electron-builder --win --x64",
     "backend:setup": "cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt",
     "backend:dev": "cd backend && . .venv/bin/activate && uvicorn app.main:app --reload --host 127.0.0.1 --port 8742"
   },
@@ -53,24 +56,39 @@
         "from": "backend",
         "to": "backend",
         "filter": ["**/*", "!.venv/**", "!**/__pycache__/**"]
-      },
-      {
-        "from": "models",
-        "to": "models"
       }
     ],
     "mac": {
+      "icon": "build/icon.icns",
       "category": "public.app-category.productivity",
-      "target": ["dmg", "zip"],
+      "target": [
+        { "target": "dmg", "arch": ["arm64"] },
+        { "target": "zip", "arch": ["arm64"] }
+      ],
       "hardenedRuntime": true,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "extraResources": [
+        { "from": "python-runtime/mac/python", "to": "python" }
+      ]
     },
     "win": {
-      "target": ["nsis", "portable"]
+      "icon": "build/icon.ico",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "extraResources": [
+        { "from": "python-runtime/win/python", "to": "python" }
+      ]
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
     }
   }
 }

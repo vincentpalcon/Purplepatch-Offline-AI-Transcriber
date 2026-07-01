@@ -35,6 +35,7 @@ export interface SystemStats {
   disk_total_mb: number
   gpu_percent: number | null
   gpu_name: string | null
+  device: string
 }
 
 export interface TranscriptionJob {

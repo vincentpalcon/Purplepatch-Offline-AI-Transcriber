@@ -75,6 +75,7 @@ class SystemStats(BaseModel):
     disk_total_mb: float
     gpu_percent: float | None = None
     gpu_name: str | None = None
+    device: str = "cpu"
 
 
 class HealthResponse(BaseModel):
