@@ -8,7 +8,7 @@
  * Usage: node scripts/bundle-python.mjs [mac|win|all]
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -144,7 +144,18 @@ function installWin(target, crossInstallPython) {
 }
 
 function cleanupPycache(dir) {
-  run('find', [dir, '-type', 'd', '-name', '__pycache__', '-prune', '-exec', 'rm', '-rf', '{}', '+'])
+  // Pure Node, not `find`: the Unix and Windows `find` commands are
+  // unrelated tools with incompatible syntax, so shelling out here breaks
+  // on Windows CI runners ("FIND: Parameter format not correct").
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const full = join(dir, entry.name)
+    if (entry.name === '__pycache__') {
+      rmSync(full, { recursive: true, force: true })
+    } else {
+      cleanupPycache(full)
+    }
+  }
 }
 
 async function buildTarget(name, crossInstallPython) {
